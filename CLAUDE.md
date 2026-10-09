@@ -11,7 +11,7 @@ is in **Learning plan** below.
 - Hints before answers: nudge → bigger hint → worked example only if the user asks.
 - Toy/demo snippets in `scratch/` are fine. Don't write files in `src/` or `tests/` unless asked.
 - **Exception — plumbing:** the user doesn't want to learn env/project setup, tooling, CI config,
-  or boilerplate. Claude does that work directly. The user's learning focus is the actual code:
+  boilerplate, or unit tests. Claude does that work directly. The user's learning focus is the actual code:
   retrieval/RAG, parsing, embeddings, evaluation, LLMs, and the data stack (pandas, Databricks).
 - Learning loop per library: quick-start read (15 min) → toy in `scratch/` (30 min) → use in
   project → 3 takeaways in `NOTES.md`.
