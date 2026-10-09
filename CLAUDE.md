@@ -37,7 +37,7 @@ is in **Learning plan** below.
 - **Current task:** Load SWE-bench Lite with `datasets` and explore the columns
 - **Done so far:** Week 0 setup done by Claude (uv, Python 3.12, src layout, pytest, git).
   Sample `split_identifier` in `src/pinpoint/text.py` (reused in Week 3 tokenizer).
-- **Blockers / open questions:** GitHub remote not created yet (needs user's OK on name/visibility).
+- **Blockers / open questions:** none. Repo: github.com/Vishaal-G/PinPoint (private), branch `main`.
 - **Next step:** Week 1: load `princeton-nlp/SWE-bench_Lite` and explore it.
 
 ## Decisions made
