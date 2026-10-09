@@ -33,12 +33,25 @@ is in **Learning plan** below.
 
 ## Progress
 
-- **Current week:** Week 1 (Get the data)
-- **Current task:** Load SWE-bench Lite with `datasets` and explore the columns
-- **Done so far:** Week 0 setup done by Claude (uv, Python 3.12, src layout, pytest, git).
-  Sample `split_identifier` in `src/pinpoint/text.py` (reused in Week 3 tokenizer).
-- **Blockers / open questions:** none. Repo: github.com/Vishaal-G/PinPoint (private), branch `main`.
-- **Next step:** Week 1: load `princeton-nlp/SWE-bench_Lite` and explore it.
+- **Current week:** Week 1 (Get the data), about 80% done
+- **Current task:** `src/pinpoint/repos.py`: clone `pytest-dev/pytest` once with GitPython into
+  `data/repos/pytest`, then one `git worktree add --detach` per issue at `base_commit`.
+  Plan: `get_snapshot(issue) -> Path` (clone if needed, add worktree if missing) + `remove_snapshot`.
+- **Done so far:**
+  - Week 0 setup (by Claude). Repo: github.com/Vishaal-G/PinPoint (private), branch `main`.
+  - `data.py` (user): reads SWE-bench Lite from `hf://datasets/SWE-bench/SWE-bench_Lite/...`
+    with pandas (no `datasets` lib), saves all columns to `data/bronze/issues.parquet`.
+    `load_issues(repo=None)` returns all 300 or one repo, index reset.
+  - `patches.py` (user started, Claude fixed): `changed_source_lines(patch) -> {path: {old line nos}}`.
+    Removed lines = own number; added lines = old line they follow; new files skipped.
+    Checked on all 300: every issue maps to >=1 line; every Lite issue touches exactly 1 file;
+    django-13768 gets line 0 (import added above line 1), which is correct.
+  - `tests/test_patches.py` (Claude): 7 cases, all passing.
+  - Starting slice: `pytest-dev/pytest` (17 issues). Example: pytest-dev__pytest-11143 -> rewrite.py {678}.
+- **Blockers / open questions:** none. Possible: cloning on `/mnt/c` is slow; offer to move the
+  project to `~/` if it drags. Optional: drop unused `datasets` dependency (user hasn't decided).
+- **Next step:** write `repos.py`, then a `scratch/week1_demo.py` milestone script (print the issue,
+  open the buggy file at base_commit, mark the changed lines with `>>`). Then Week 2 (tree-sitter).
 
 ## Decisions made
 
@@ -49,7 +62,8 @@ is in **Learning plan** below.
 
 ## Session log
 
-- 2026-10-09: Claude did Week 0 setup at the user's request. Moving to Week 1.
+- 2026-10-09: Claude did Week 0 setup. User wrote data.py and patches.py (reviewed and fixed), Claude wrote tests.
+  User prefers direct implementation guides, no warm-ups. Next: repos.py.
 - 2026-10-03: Wrote the project description and the learning plan. Assigned Week 0.
 
 ---
@@ -78,14 +92,14 @@ is in **Learning plan** below.
 
 **Learn:** Hugging Face `datasets`, `GitPython`, `unidiff` (parsing patches), pandas → parquet.
 
-- [ ] Load `princeton-nlp/SWE-bench_Lite` (split `test`). Explore it in a notebook: what are
+- [x] Load `princeton-nlp/SWE-bench_Lite` (split `test`). Explore it in a notebook: what are
       `instance_id`, `repo`, `base_commit`, `patch`, `test_patch`, `problem_statement`?
-- [ ] Count issues per repo. Pick your small starting repo (a smaller one beats Django).
+- [x] Count issues per repo. Pick your small starting repo (a smaller one beats Django).
 - [ ] With GitPython: clone the repo once, then check out one issue's `base_commit`.
       Then learn `git worktree`, which lets you have several commits checked out without re-cloning.
-- [ ] Parse one gold `patch` with `unidiff`: list the files changed and line numbers of the
+- [x] Parse one gold `patch` with `unidiff`: list the files changed and line numbers of the
       **source (before-fix) side** of each hunk. Write down why it's the source side.
-- [ ] Save the issues table as `data/bronze/issues.parquet`.
+- [x] Save the issues table as `data/bronze/issues.parquet`.
 
 **Milestone:** for one issue you can print the bug report, open the buggy file at the base commit,
 and point at the lines the fix changed.
