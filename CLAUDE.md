@@ -34,8 +34,8 @@ is in **Learning plan** below.
 
 ## Progress
 
-- **Current week:** Week 2 (Parsing and ground truth), not started. Week 1 done.
-- **Current task:** tree-sitter: parse a snapshot file, extract functions/classes with line ranges.
+- **Current week:** Week 3 (Evaluation harness + BM25 baseline), not started. Weeks 1–2 done.
+- **Current task:** `metrics.py` (accuracy@k, recall@k, MRR) with tests, then BM25 over files.
 - **Done so far:**
   - Week 0 setup (by Claude). Repo: github.com/Vishaal-G/PinPoint (private), branch `main`.
   - `data.py` (user): reads SWE-bench Lite from `hf://datasets/SWE-bench/SWE-bench_Lite/...`
@@ -49,11 +49,21 @@ is in **Learning plan** below.
   - `repos.py` (Claude): `get_snapshot(issue)` clones once into `data/repos/<name>`, then one
     `git worktree add --detach` per issue into `data/worktrees/<instance_id>`. 7 tests (fake local repo).
   - `scratch/week1_demo.py` (Claude): Week 1 milestone. Prints the report and the buggy file with `>>` on changed lines.
+  - `parse.py` (Claude): tree-sitter → one row per function: path, qualname (`Cls.meth`,
+    `outer.inner`), start/end line (1-based, decorators included), source, sha256 hash, calls.
+  - `ground_truth.py` (Claude): changed line → innermost containing function, id `path::qualname`.
+    Lines outside functions are ignored; `has_function` marks issues with no gold function.
+  - `pipeline.py` (Claude, `uv run python -m pinpoint.pipeline [repo]`): writes
+    `silver/functions` (hash, source), `silver/edges` (hash, callee), `silver/snapshot_membership`,
+    `gold/ground_truth` (gold_files, gold_functions, has_function). 35 tests total.
+  - Week 2 results (pytest): 16/17 issues have a gold function (5227 = module constant only).
+    73,389 function rows → 14,312 unique hashes (80% dedup). 54,502 call edges; on one snapshot
+    27% of call names match no repo function, 35% exactly one, 37% several (`__init__` → 145).
   - Starting slice: `pytest-dev/pytest` (17 issues). Example: pytest-dev__pytest-11143 -> rewrite.py {678}.
-- **Blockers / open questions:** none. Possible: cloning on `/mnt/c` is slow; offer to move the
-  project to `~/` if it drags. Optional: drop unused `datasets` dependency (user hasn't decided).
-- **Next step:** Week 2: tree-sitter toy, then function extraction. Edge case seen in
-  pytest-5103: an added new method anchors to a blank line *between* functions (line 966).
+- **Blockers / open questions:** none. `git worktree add` on `/mnt/c` takes ~12s per issue
+  (~1h for 300); consider moving the project to `~/` before scaling. Optional: drop unused `datasets` dependency.
+- **Next step:** Week 3: metrics with tests, code tokenizer (`text.split_identifier` exists), BM25 over
+  files, MLflow, lock the 200/100 split. Week 6 note: down-weight ambiguous callee names; filter test paths.
 
 ## Decisions made
 
@@ -61,11 +71,13 @@ is in **Learning plan** below.
 - ~10-week timeline instead of 7.
 - Tune/held-out split (200/100) gets locked in Week 3, before any tuning.
 - Claude handles setup/tooling; the user learns the code and the RAG stack (2026-10-09).
+- Ground truth: innermost function containing each changed line; lines outside functions ignored;
+  function-less issues kept with `has_function=False` and scored at file level only (2026-10-20).
 - Claude writes all the code and explains the architecture and what it did after every step (2026-10-20).
 
 ## Session log
 
-- 2026-10-20: Switched to Claude-writes-code mode. Claude wrote repos.py + tests and the Week 1 demo. Week 1 done.
+- 2026-10-20: Switched to Claude-writes-code mode. Built repos.py, Week 1 demo, parse.py, ground truth, call edges, pipeline. Weeks 1–2 done.
 - 2026-10-09: Claude did Week 0 setup. User wrote data.py and patches.py (reviewed and fixed), Claude wrote tests.
   User prefers direct implementation guides, no warm-ups. Next: repos.py.
 - 2026-10-03: Wrote the project description and the learning plan. Assigned Week 0.
@@ -112,16 +124,16 @@ and point at the lines the fix changed.
 
 **Learn:** `tree-sitter` (py-tree-sitter + tree-sitter-python), `hashlib`, pytest fixtures.
 
-- [ ] Toy: parse a 10-line Python string, print the syntax tree, find every `function_definition`.
-- [ ] Extract functions and classes: qualified name (`Class.method`), file, start/end line, source text.
-- [ ] Extract call edges: inside each function, find `call` nodes and record the called name.
+- [x] Toy: parse a 10-line Python string, print the syntax tree, find every `function_definition`.
+- [x] Extract functions and classes: qualified name (`Class.method`), file, start/end line, source text.
+- [x] Extract call edges: inside each function, find `call` nodes and record the called name.
       (This will be imperfect. Name matching only, no type resolution. That's OK; note it.)
-- [ ] Content hash per function (`sha256` of the source text): the key for "embed only once".
-- [ ] Ground truth: overlap gold-patch source line ranges with function line ranges.
+- [x] Content hash per function (`sha256` of the source text): the key for "embed only once".
+- [x] Ground truth: overlap gold-patch source line ranges with function line ranges.
       Think about edge cases: a fix that only *adds* a new function, a change outside any function
       (module-level code), a file that's new.
-- [ ] pytest tests on a small fixture file you write by hand, where you know the right answer.
-- [ ] Tables: `silver/functions`, `silver/edges`, `silver/snapshot_membership`, `gold/ground_truth`.
+- [x] pytest tests on a small fixture file you write by hand, where you know the right answer.
+- [x] Tables: `silver/functions`, `silver/edges`, `silver/snapshot_membership`, `gold/ground_truth`.
 
 **Check yourself:** What % of your issues have ≥1 ground-truth function? (If it's low, your
 mapping has a bug or those issues should be excluded. Write down which.)
@@ -224,8 +236,8 @@ Spark SQL, Jobs, AI Search (Delta Sync index, hybrid queries, filters).
 | Library | Week | Done |
 |---|---|---|
 | uv, pytest | 0 | n/a (Claude handles) |
-| datasets, GitPython, unidiff, pandas/parquet | 1 | [ ] |
-| tree-sitter, hashlib | 2 | [ ] |
+| datasets, GitPython, unidiff, pandas/parquet | 1 | [x] |
+| tree-sitter, hashlib | 2 | [x] |
 | rank_bm25, MLflow tracking | 3 | [ ] |
 | sentence-transformers, numpy | 4 | [ ] |
 | Databricks, Unity Catalog, Delta, PySpark, Spark SQL, AI Search, Jobs | 5 | [ ] |
