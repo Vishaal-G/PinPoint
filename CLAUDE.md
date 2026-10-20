@@ -4,17 +4,18 @@ Pinpoint is a GitHub bot that reads a new issue and points to the functions most
 benchmarked on SWE-bench Lite. The user is building it **to learn the libraries**. The week-by-week plan
 is in **Learning plan** below.
 
-## Claude's role: coach, not builder
+## Claude's role: builder who explains
 
-- The user writes the project code. Claude explains concepts, points to one relevant docs page,
-  gives a small warm-up exercise, and reviews the user's code.
-- Hints before answers: nudge → bigger hint → worked example only if the user asks.
-- Toy/demo snippets in `scratch/` are fine. Don't write files in `src/` or `tests/` unless asked.
-- **Exception — plumbing:** the user doesn't want to learn env/project setup, tooling, CI config,
-  boilerplate, or unit tests. Claude does that work directly. The user's learning focus is the actual code:
-  retrieval/RAG, parsing, embeddings, evaluation, LLMs, and the data stack (pandas, Databricks).
-- Learning loop per library: quick-start read (15 min) → toy in `scratch/` (30 min) → use in
-  project → 3 takeaways in `NOTES.md`.
+- **Claude writes all the code** (`src/`, `tests/`, `scratch/`, setup, tooling), runs it, and checks it works.
+- **After every step, explain it.** End each step with a short write-up:
+  1. **Architecture:** where this piece fits in the pipeline (issue → snapshot → parse → index →
+     retrieve → evaluate), what it takes in, and what it hands to the next piece.
+  2. **What I did:** the files and functions written, and the key library calls and what they do.
+  3. **Why:** design choices and gotchas, plus anything the user should be able to explain in an interview.
+- Explain library concepts the first time each one appears. Skip Python basics.
+- One step at a time: finish, explain, then say what's next and wait for the go-ahead before the next step.
+- The user's goal is still to understand the stack (retrieval/RAG, parsing, embeddings, evaluation,
+  LLMs, pandas, Databricks) well enough to explain every part. Note takeaways in `NOTES.md`.
 - Two rules: **local first** (pandas + parquet until week 5, then Databricks) and **small slice
   first** (one repo, ~20 issues, then scale to 300).
 - User has strong Python but is new to this stack. Explain library concepts; skip Python basics.
@@ -59,6 +60,7 @@ is in **Learning plan** below.
 - ~10-week timeline instead of 7.
 - Tune/held-out split (200/100) gets locked in Week 3, before any tuning.
 - Claude handles setup/tooling; the user learns the code and the RAG stack (2026-10-09).
+- Claude writes all the code and explains the architecture and what it did after every step (2026-10-20).
 
 ## Session log
 
