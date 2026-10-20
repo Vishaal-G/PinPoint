@@ -13,6 +13,11 @@ is in **Learning plan** below.
   2. **What I did:** the files and functions written, and the key library calls and what they do.
   3. **Why:** design choices and gotchas, plus anything the user should be able to explain in an interview.
 - Explain library concepts the first time each one appears. Skip Python basics.
+- **RAG/retrieval, ML, and Databricks are what the user most wants to learn.** For those, teach
+  explicitly and in depth, in plain language: start with a concept lesson *before* the code
+  (what it is, how it works under the hood, a tiny worked example with numbers, alternatives and
+  trade-offs, how it shows up in industry and interviews), then build, then tie the results back
+  to the concept. Plumbing and data prep only need the short three-part explanation.
 - One step at a time: finish, explain, then say what's next and wait for the go-ahead before the next step.
 - The user's goal is still to understand the stack (retrieval/RAG, parsing, embeddings, evaluation,
   LLMs, pandas, Databricks) well enough to explain every part. Note takeaways in `NOTES.md`.
