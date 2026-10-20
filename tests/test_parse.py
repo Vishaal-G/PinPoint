@@ -99,4 +99,43 @@ def test_parse_snapshot_uses_relative_forward_slash_paths(tmp_path):
     df = parse_snapshot(tmp_path)
     assert set(df["path"]) == {"src/pkg/mod.py"}
     assert len(df) == 7
-    assert list(df.columns) == ["path", "qualname", "start_line", "end_line", "source", "hash"]
+    assert list(df.columns) == [
+        "path", "qualname", "start_line", "end_line", "source", "hash", "calls"
+    ]
+
+
+CALLS = b'''\
+import os
+
+@register("x")
+def outer(p):
+    path = os.path.join(p, "a")
+    helper(path).strip()
+
+    def inner():
+        return deep_only()
+
+    class Local:
+        def m(self):
+            return in_method()
+
+    handlers[0]()
+    return inner()
+
+class C:
+    def a(self):
+        return self.b()
+'''
+
+
+def test_calls_by_name():
+    f = by_name(parse_file(CALLS, "m.py"))
+    # attribute calls keep the last part; decorator call counts; nested def's calls don't
+    assert f["outer"].calls == ["helper", "inner", "join", "register", "strip"]
+    assert f["outer.inner"].calls == ["deep_only"]
+    assert f["outer.Local.m"].calls == ["in_method"]
+    assert f["C.a"].calls == ["b"]
+
+
+def test_function_with_no_calls():
+    assert by_name(parse_file(SAMPLE, "pkg/mod.py"))["top"].calls == []

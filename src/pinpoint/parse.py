@@ -17,6 +17,7 @@ class Function:
     end_line: int    # 1-based, inclusive
     source: str
     hash: str        # sha256 of source: same code anywhere -> same hash
+    calls: list[str] # names this function calls, e.g. ["helper", "join"]; name only, unresolved
 
 
 def parse_file(source: bytes, path: str) -> list[Function]:
@@ -45,6 +46,7 @@ def _walk(node: Node, scope: list[str], path: str, found: list[Function]) -> Non
                 end_line=outer.end_point[0] + 1,
                 source=text,
                 hash=hashlib.sha256(text.encode()).hexdigest(),
+                calls=_calls(outer, child),
             ))
             _walk(child.child_by_field_name("body"), scope + [name], path, found)
         elif child.type == "class_definition":
@@ -53,6 +55,33 @@ def _walk(node: Node, scope: list[str], path: str, found: list[Function]) -> Non
         else:
             # if/try/with blocks etc. can hold defs too (e.g. `if sys.version_info...: def f`).
             _walk(child, scope, path, found)
+
+
+def _calls(node: Node, own_def: Node) -> list[str]:
+    """Names called anywhere in this function, except inside nested defs and classes
+    (those calls belong to the nested function). Decorator calls count: they run here."""
+    names = set()
+    stack = [node]
+    while stack:
+        n = stack.pop()
+        if n.type in ("function_definition", "class_definition") and n != own_def:
+            continue
+        if n.type == "call":
+            name = _callee_name(n.child_by_field_name("function"))
+            if name:
+                names.add(name)
+        stack.extend(n.named_children)
+    return sorted(names)
+
+
+def _callee_name(fn: Node) -> str | None:
+    """`helper(x)` -> "helper"; `self.greet(x)` / `os.path.join(x)` -> the last part.
+    Anything fancier (`f()()`, `handlers[0]()`) has no name to match on."""
+    if fn.type == "identifier":
+        return fn.text.decode()
+    if fn.type == "attribute":
+        return fn.child_by_field_name("attribute").text.decode()
+    return None
 
 
 def parse_snapshot(root: Path) -> pd.DataFrame:
