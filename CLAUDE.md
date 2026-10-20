@@ -34,10 +34,8 @@ is in **Learning plan** below.
 
 ## Progress
 
-- **Current week:** Week 1 (Get the data), about 80% done
-- **Current task:** `src/pinpoint/repos.py`: clone `pytest-dev/pytest` once with GitPython into
-  `data/repos/pytest`, then one `git worktree add --detach` per issue at `base_commit`.
-  Plan: `get_snapshot(issue) -> Path` (clone if needed, add worktree if missing) + `remove_snapshot`.
+- **Current week:** Week 2 (Parsing and ground truth), not started. Week 1 done.
+- **Current task:** tree-sitter: parse a snapshot file, extract functions/classes with line ranges.
 - **Done so far:**
   - Week 0 setup (by Claude). Repo: github.com/Vishaal-G/PinPoint (private), branch `main`.
   - `data.py` (user): reads SWE-bench Lite from `hf://datasets/SWE-bench/SWE-bench_Lite/...`
@@ -48,11 +46,14 @@ is in **Learning plan** below.
     Checked on all 300: every issue maps to >=1 line; every Lite issue touches exactly 1 file;
     django-13768 gets line 0 (import added above line 1), which is correct.
   - `tests/test_patches.py` (Claude): 7 cases, all passing.
+  - `repos.py` (Claude): `get_snapshot(issue)` clones once into `data/repos/<name>`, then one
+    `git worktree add --detach` per issue into `data/worktrees/<instance_id>`. 7 tests (fake local repo).
+  - `scratch/week1_demo.py` (Claude): Week 1 milestone. Prints the report and the buggy file with `>>` on changed lines.
   - Starting slice: `pytest-dev/pytest` (17 issues). Example: pytest-dev__pytest-11143 -> rewrite.py {678}.
 - **Blockers / open questions:** none. Possible: cloning on `/mnt/c` is slow; offer to move the
   project to `~/` if it drags. Optional: drop unused `datasets` dependency (user hasn't decided).
-- **Next step:** write `repos.py`, then a `scratch/week1_demo.py` milestone script (print the issue,
-  open the buggy file at base_commit, mark the changed lines with `>>`). Then Week 2 (tree-sitter).
+- **Next step:** Week 2: tree-sitter toy, then function extraction. Edge case seen in
+  pytest-5103: an added new method anchors to a blank line *between* functions (line 966).
 
 ## Decisions made
 
@@ -64,6 +65,7 @@ is in **Learning plan** below.
 
 ## Session log
 
+- 2026-10-20: Switched to Claude-writes-code mode. Claude wrote repos.py + tests and the Week 1 demo. Week 1 done.
 - 2026-10-09: Claude did Week 0 setup. User wrote data.py and patches.py (reviewed and fixed), Claude wrote tests.
   User prefers direct implementation guides, no warm-ups. Next: repos.py.
 - 2026-10-03: Wrote the project description and the learning plan. Assigned Week 0.
@@ -97,7 +99,7 @@ is in **Learning plan** below.
 - [x] Load `princeton-nlp/SWE-bench_Lite` (split `test`). Explore it in a notebook: what are
       `instance_id`, `repo`, `base_commit`, `patch`, `test_patch`, `problem_statement`?
 - [x] Count issues per repo. Pick your small starting repo (a smaller one beats Django).
-- [ ] With GitPython: clone the repo once, then check out one issue's `base_commit`.
+- [x] With GitPython: clone the repo once, then check out one issue's `base_commit`.
       Then learn `git worktree`, which lets you have several commits checked out without re-cloning.
 - [x] Parse one gold `patch` with `unidiff`: list the files changed and line numbers of the
       **source (before-fix) side** of each hunk. Write down why it's the source side.
