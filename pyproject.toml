@@ -12,6 +12,8 @@ dependencies = [
     "gitpython>=3.2.0",
     "pandas>=3.0.6",
     "pyarrow>=26.0.0",
+    "tree-sitter>=0.26.0",
+    "tree-sitter-python>=0.25.0",
     "unidiff>=1.0.1",
 ]
 
