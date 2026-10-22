@@ -33,3 +33,16 @@ def test_split_mode_matches_words_inside_identifiers(tmp_path):
         "c.py": "def save():\n    pass\n",
     })
     assert rank_files(tmp_path, "rewrite disabled", mode="split")[0] == "a.py"
+
+
+def test_run_scores_only_the_issues_it_ranked(tmp_path, monkeypatch):
+    import pandas as pd
+    from pinpoint import bm25
+
+    write(tmp_path, {"pkg/rewrite.py": "def rewrite():\n    pass\n", "pkg/other.py": "x = 1\n"})
+    monkeypatch.setattr(bm25, "get_snapshot", lambda issue: tmp_path)
+    monkeypatch.setattr(bm25, "log_run", lambda name, params, rankings, gold: gold)
+    issues = pd.DataFrame([{"instance_id": "A", "problem_statement": "rewrite"}])
+    # "B" is in gold (e.g. a held-out issue) but not in issues: it must not count as a miss.
+    gold = bm25.run(issues, {"A": ["pkg/rewrite.py"], "B": ["pkg/other.py"]})
+    assert list(gold) == ["A"]

@@ -10,6 +10,7 @@ from rank_bm25 import BM25Okapi
 
 from pinpoint.data import load_issues
 from pinpoint.repos import get_snapshot, source_files
+from pinpoint.split import tune_ids
 from pinpoint.text import tokenize
 from pinpoint.tracking import log_run
 
@@ -33,6 +34,8 @@ def run(issues: pd.DataFrame, gold: dict, mode: str = "both",
         issue["instance_id"]: rank_files(get_snapshot(issue), issue["problem_statement"], mode, k1, b)
         for _, issue in issues.iterrows()
     }
+    # Score only the issues ranked here: evaluate() counts a gold issue with no ranking as a miss.
+    gold = {iid: gold[iid] for iid in rankings}
     params = {"strategy": "bm25", "level": "file", "tokens": mode, "k1": k1, "b": b,
               "slice": slice_name}
     return log_run(f"bm25-file-{mode}", params, rankings, gold)
@@ -41,9 +44,10 @@ def run(issues: pd.DataFrame, gold: dict, mode: str = "both",
 if __name__ == "__main__":
     repo = sys.argv[1] if len(sys.argv) > 1 else "pytest-dev/pytest"
     issues = load_issues(repo)
+    issues = issues[issues.instance_id.isin(tune_ids())]  # never score held-out here
     gt = pd.read_parquet("data/gold/ground_truth.parquet")
     gold = dict(zip(gt.instance_id, gt.gold_files))
     for mode in ("whole", "split", "both"):
-        r = run(issues, gold, mode, slice_name=repo)
+        r = run(issues, gold, mode, slice_name=f"{repo} tune")
         print(f"bm25 files, tokens={mode:5s}  " + "  ".join(
             f"{k}={v:.3f}" for k, v in r.items() if k != "n") + f"  n={r['n']}")

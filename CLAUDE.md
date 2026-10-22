@@ -39,8 +39,8 @@ is in **Learning plan** below.
 
 ## Progress
 
-- **Current week:** Week 3 (Evaluation harness + BM25 baseline), not started. Weeks 1–2 done.
-- **Current task:** `metrics.py` (accuracy@k, recall@k, MRR) with tests, then BM25 over files.
+- **Current week:** Week 3 done. Next: Week 4 (Embeddings and chunking).
+- **Current task:** Week 4 toy: embed 5 sentences with bge-small, similarity matrix.
 - **Done so far:**
   - Week 0 setup (by Claude). Repo: github.com/Vishaal-G/PinPoint (private), branch `main`.
   - `data.py` (user): reads SWE-bench Lite from `hf://datasets/SWE-bench/SWE-bench_Lite/...`
@@ -53,6 +53,7 @@ is in **Learning plan** below.
   - `tests/test_patches.py` (Claude): 7 cases, all passing.
   - `repos.py` (Claude): `get_snapshot(issue)` clones once into `data/repos/<name>`, then one
     `git worktree add --detach` per issue into `data/worktrees/<instance_id>`. 7 tests (fake local repo).
+    `source_files()` / `is_source_file()` drop tests, docs, examples, conftest (gold never touches them).
   - `scratch/week1_demo.py` (Claude): Week 1 milestone. Prints the report and the buggy file with `>>` on changed lines.
   - `parse.py` (Claude): tree-sitter → one row per function: path, qualname (`Cls.meth`,
     `outer.inner`), start/end line (1-based, decorators included), source, sha256 hash, calls.
@@ -60,21 +61,35 @@ is in **Learning plan** below.
     Lines outside functions are ignored; `has_function` marks issues with no gold function.
   - `pipeline.py` (Claude, `uv run python -m pinpoint.pipeline [repo]`): writes
     `silver/functions` (hash, source), `silver/edges` (hash, callee), `silver/snapshot_membership`,
-    `gold/ground_truth` (gold_files, gold_functions, has_function). 35 tests total.
+    `gold/ground_truth` (gold_files, gold_functions, has_function).
+  - Week 3 (Claude, 2026-10-21): `metrics.py` (accuracy@k, recall@k, MRR, `evaluate()`, dedupes
+    rankings, missing ranking scores 0); `text.py` tokenizer (`tokenize(text, mode)` with
+    whole / split / both); `bm25.py` (rank_bm25 `BM25Okapi` over source files per snapshot,
+    `uv run python -m pinpoint.bm25 [repo]`); `tracking.py` (`log_run` → MLflow in
+    `sqlite:///data/mlflow.db`, logs params, metrics, per_issue.csv). Scratch: random baseline,
+    BM25 per-issue look.
+  - BM25 file-level results, pytest slice (n=17, k1=1.5, b=0.75):
+    whole acc@1 .412 / acc@5 .529 / acc@10 .647 / MRR .491;
+    split .294 / .529 / .588 / .403; both .294 / .529 / .647 / .410.
+    Whole-identifier tokens won on this slice (n=17, so the gap is noisy).
+  - `split.py` (Claude, 2026-10-22): `splits/split.csv` (committed), 200 tune / 100 held-out,
+    stratified by repo (largest-remainder counts), seed 20261022. `tune_ids()` for runners.
+    `bm25.py` main now scores tune only and `run()` limits gold to ranked issues.
+    Row 1 (pytest tune, n=11): whole acc@1 .455 / acc@5 .636 / MRR .539. Table in NOTES.md.
   - Week 2 results (pytest): 16/17 issues have a gold function (5227 = module constant only).
     73,389 function rows → 14,312 unique hashes (80% dedup). 54,502 call edges; on one snapshot
     27% of call names match no repo function, 35% exactly one, 37% several (`__init__` → 145).
   - Starting slice: `pytest-dev/pytest` (17 issues). Example: pytest-dev__pytest-11143 -> rewrite.py {678}.
 - **Blockers / open questions:** none. `git worktree add` on `/mnt/c` takes ~12s per issue
   (~1h for 300); consider moving the project to `~/` before scaling. Optional: drop unused `datasets` dependency.
-- **Next step:** Week 3: metrics with tests, code tokenizer (`text.split_identifier` exists), BM25 over
-  files, MLflow, lock the 200/100 split. Week 6 note: down-weight ambiguous callee names; filter test paths.
+- **Next step:** Week 4: embeddings concept lesson + toy, then function-level chunks embedded by hash.
+  Week 6 note: down-weight ambiguous callee names.
 
 ## Decisions made
 
 - Python 3.12 (not 3.14) to match Databricks serverless and library support.
 - ~10-week timeline instead of 7.
-- Tune/held-out split (200/100) gets locked in Week 3, before any tuning.
+- Tune/held-out split (200/100) locked 2026-10-22 in `splits/split.csv`, stratified by repo; never regenerate it.
 - Claude handles setup/tooling; the user learns the code and the RAG stack (2026-10-09).
 - Ground truth: innermost function containing each changed line; lines outside functions ignored;
   function-less issues kept with `has_function=False` and scored at file level only (2026-10-20).
@@ -82,6 +97,8 @@ is in **Learning plan** below.
 
 ## Session log
 
+- 2026-10-22: Synced Progress. Locked 200/100 split, re-scored BM25 on pytest tune (MRR .539). Week 3 done.
+- 2026-10-21: Built metrics.py, tokenizer, BM25 file baseline, MLflow tracking. BM25 whole-token MRR .491 on pytest.
 - 2026-10-20: Switched to Claude-writes-code mode. Built repos.py, Week 1 demo, parse.py, ground truth, call edges, pipeline. Weeks 1–2 done.
 - 2026-10-09: Claude did Week 0 setup. User wrote data.py and patches.py (reviewed and fixed), Claude wrote tests.
   User prefers direct implementation guides, no warm-ups. Next: repos.py.
@@ -147,12 +164,12 @@ mapping has a bug or those issues should be excluded. Write down which.)
 
 **Learn:** `rank_bm25`, `mlflow` (tracking, local UI), writing metric functions.
 
-- [ ] Write `accuracy_at_k`, `recall_at_k`, `mrr` **yourself**, with pytest tests on hand-made
+- [x] Write `accuracy_at_k`, `recall_at_k`, `mrr` **yourself**, with pytest tests on hand-made
       rankings. This harness is what makes the whole project credible.
-- [ ] Code tokenizer: split `snake_case` and `camelCase`, lowercase. Compare with/without.
-- [ ] Strategy 1: BM25 over whole files at each issue's base commit. Score at file level.
-- [ ] Log it as an MLflow run (params + metrics). Open `mlflow ui` and look at it.
-- [ ] Split issues into tune (200) / held-out (100) **now**, with a fixed seed, and save the split.
+- [x] Code tokenizer: split `snake_case` and `camelCase`, lowercase. Compare with/without.
+- [x] Strategy 1: BM25 over whole files at each issue's base commit. Score at file level.
+- [x] Log it as an MLflow run (params + metrics). Open `mlflow ui` and look at it.
+- [x] Split issues into tune (200) / held-out (100) **now**, with a fixed seed, and save the split.
       Never look at held-out numbers until week 9.
 
 **Milestone:** row 1 of your results table.
@@ -243,7 +260,7 @@ Spark SQL, Jobs, AI Search (Delta Sync index, hybrid queries, filters).
 | uv, pytest | 0 | n/a (Claude handles) |
 | datasets, GitPython, unidiff, pandas/parquet | 1 | [x] |
 | tree-sitter, hashlib | 2 | [x] |
-| rank_bm25, MLflow tracking | 3 | [ ] |
+| rank_bm25, MLflow tracking | 3 | [x] |
 | sentence-transformers, numpy | 4 | [ ] |
 | Databricks, Unity Catalog, Delta, PySpark, Spark SQL, AI Search, Jobs | 5 | [ ] |
 | Anthropic SDK, CrossEncoder | 6 | [ ] |
