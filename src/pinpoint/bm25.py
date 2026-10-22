@@ -9,9 +9,9 @@ import pandas as pd
 from rank_bm25 import BM25Okapi
 
 from pinpoint.data import load_issues
-from pinpoint.metrics import evaluate
 from pinpoint.repos import get_snapshot, source_files
 from pinpoint.text import tokenize
+from pinpoint.tracking import log_run
 
 
 def rank_files(snapshot: Path, query: str, mode: str = "both",
@@ -26,12 +26,16 @@ def rank_files(snapshot: Path, query: str, mode: str = "both",
     return [paths[i] for i in order]
 
 
-def run(issues: pd.DataFrame, gold: dict, mode: str, **params) -> dict[str, float]:
+def run(issues: pd.DataFrame, gold: dict, mode: str = "both",
+        k1: float = 1.5, b: float = 0.75, slice_name: str = "") -> dict[str, float]:
+    """Rank files for every issue, then score and log the run to MLflow."""
     rankings = {
-        issue["instance_id"]: rank_files(get_snapshot(issue), issue["problem_statement"], mode, **params)
+        issue["instance_id"]: rank_files(get_snapshot(issue), issue["problem_statement"], mode, k1, b)
         for _, issue in issues.iterrows()
     }
-    return evaluate(rankings, gold, ks=(1, 5, 10))
+    params = {"strategy": "bm25", "level": "file", "tokens": mode, "k1": k1, "b": b,
+              "slice": slice_name}
+    return log_run(f"bm25-file-{mode}", params, rankings, gold)
 
 
 if __name__ == "__main__":
@@ -40,6 +44,6 @@ if __name__ == "__main__":
     gt = pd.read_parquet("data/gold/ground_truth.parquet")
     gold = dict(zip(gt.instance_id, gt.gold_files))
     for mode in ("whole", "split", "both"):
-        r = run(issues, gold, mode)
+        r = run(issues, gold, mode, slice_name=repo)
         print(f"bm25 files, tokens={mode:5s}  " + "  ".join(
             f"{k}={v:.3f}" for k, v in r.items() if k != "n") + f"  n={r['n']}")

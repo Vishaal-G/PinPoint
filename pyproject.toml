@@ -6,12 +6,13 @@ readme = "README.md"
 authors = [
     { name = "Vishaal", email = "vishaaltor@gmail.com" }
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "datasets>=5.1.0",
     "gitpython>=3.2.0",
+    "mlflow>=3",
     "pandas>=3.0.6",
-    "pyarrow>=26.0.0",
+    "pyarrow>=21",
     "rank-bm25>=0.2.2",
     "tree-sitter>=0.26.0",
     "tree-sitter-python>=0.25.0",
