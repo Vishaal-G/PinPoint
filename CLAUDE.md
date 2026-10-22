@@ -39,8 +39,8 @@ is in **Learning plan** below.
 
 ## Progress
 
-- **Current week:** Week 3 done. Next: Week 4 (Embeddings and chunking).
-- **Current task:** Week 4 toy: embed 5 sentences with bge-small, similarity matrix.
+- **Current week:** Week 4 (Embeddings and chunking), in progress. Weeks 1–3 done.
+- **Current task:** Strategy 3: one embedding per function (by content hash), numpy cosine search.
 - **Done so far:**
   - Week 0 setup (by Claude). Repo: github.com/Vishaal-G/PinPoint (private), branch `main`.
   - `data.py` (user): reads SWE-bench Lite from `hf://datasets/SWE-bench/SWE-bench_Lite/...`
@@ -76,17 +76,24 @@ is in **Learning plan** below.
     stratified by repo (largest-remainder counts), seed 20261022. `tune_ids()` for runners.
     `bm25.py` main now scores tune only and `run()` limits gold to ranked issues.
     Row 1 (pytest tune, n=11): whole acc@1 .455 / acc@5 .636 / MRR .539. Table in NOTES.md.
+  - Week 4 setup (Claude, 2026-10-22): sentence-transformers + CPU-only torch (pytorch-cpu index
+    in pyproject). Toy `scratch/week4_embedding_toy.py`: bge-small-en-v1.5, 384-dim unit vectors.
+    Paraphrase .74 cosine with no shared content words; decoy with shared words .76; unrelated .38.
+  - Moved project from `/mnt/c/...` to `~/PinPoint` (2026-10-22): worktrees repaired, MLflow paths
+    rewritten. Tests 49s -> 12s, embedding toy 6m49s -> 25s.
   - Week 2 results (pytest): 16/17 issues have a gold function (5227 = module constant only).
     73,389 function rows → 14,312 unique hashes (80% dedup). 54,502 call edges; on one snapshot
     27% of call names match no repo function, 35% exactly one, 37% several (`__init__` → 145).
   - Starting slice: `pytest-dev/pytest` (17 issues). Example: pytest-dev__pytest-11143 -> rewrite.py {678}.
-- **Blockers / open questions:** none. `git worktree add` on `/mnt/c` takes ~12s per issue
-  (~1h for 300); consider moving the project to `~/` before scaling. Optional: drop unused `datasets` dependency.
+- **Blockers / open questions:** none. Optional: drop unused `datasets` dependency.
+  Old copy at `/mnt/c/Users/Visha/Desktop/PinPoint` is stale; delete it once the user is happy.
 - **Next step:** Week 4: embeddings concept lesson + toy, then function-level chunks embedded by hash.
   Week 6 note: down-weight ambiguous callee names.
 
 ## Decisions made
 
+- Project lives at `~/PinPoint` (Linux filesystem), not `/mnt/c`: 5-15x faster I/O (2026-10-22).
+- PyTorch from the CPU wheel index (no CUDA on this machine) (2026-10-22).
 - Python 3.12 (not 3.14) to match Databricks serverless and library support.
 - ~10-week timeline instead of 7.
 - Tune/held-out split (200/100) locked 2026-10-22 in `splits/split.csv`, stratified by repo; never regenerate it.
@@ -178,7 +185,7 @@ mapping has a bug or those issues should be excluded. Write down which.)
 
 **Learn:** `sentence-transformers` (`bge-small`), numpy cosine similarity, what embeddings are.
 
-- [ ] Toy: embed 5 sentences, compute a similarity matrix, see which pairs are close and why.
+- [x] Toy: embed 5 sentences, compute a similarity matrix, see which pairs are close and why.
 - [ ] Strategy 2: fixed ~500-token chunks → embed → brute-force numpy search (no vector DB yet).
 - [ ] Strategy 3: one chunk per function (from silver). Embed by content hash, so duplicates are skipped.
       Record how many embeddings the hash saved; that's a resume number.
