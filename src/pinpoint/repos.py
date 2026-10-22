@@ -47,3 +47,26 @@ def remove_snapshot(issue) -> None:
         return
     repo = get_repo(issue["repo"])
     repo.git.worktree("remove", "--force", str(wt_path))
+
+
+TEST_DIRS = {"test", "tests", "testing", "doc", "docs", "example", "examples"}
+
+
+def is_source_file(path: str) -> bool:
+    """Whether a snapshot-relative .py path is a search candidate. SWE-bench gold patches
+    never touch tests, so test and doc files are left out of the search."""
+    parts = path.split("/")
+    name = parts[-1]
+    return (
+        name.endswith(".py")
+        and not TEST_DIRS & set(parts[:-1])
+        and not name.startswith("test_")
+        and not name.endswith("_test.py")
+        and name != "conftest.py"
+    )
+
+
+def source_files(snapshot: Path) -> list[str]:
+    """Snapshot-relative paths of every candidate source file, sorted."""
+    paths = (p.relative_to(snapshot).as_posix() for p in snapshot.rglob("*.py"))
+    return sorted(p for p in paths if is_source_file(p))

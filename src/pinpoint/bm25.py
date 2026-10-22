@@ -1,0 +1,45 @@
+"""Strategy 1: BM25 over whole files at each issue's base commit.
+
+    uv run python -m pinpoint.bm25                  # pytest-dev/pytest, all tokenizer modes
+"""
+import sys
+from pathlib import Path
+
+import pandas as pd
+from rank_bm25 import BM25Okapi
+
+from pinpoint.data import load_issues
+from pinpoint.metrics import evaluate
+from pinpoint.repos import get_snapshot, source_files
+from pinpoint.text import tokenize
+
+
+def rank_files(snapshot: Path, query: str, mode: str = "both",
+               k1: float = 1.5, b: float = 0.75) -> list[str]:
+    """Every source file in the snapshot, best BM25 match for `query` first."""
+    paths = source_files(snapshot)
+    docs = [tokenize((snapshot / p).read_text(errors="replace"), mode) for p in paths]
+    # IDF and average length come from this snapshot's files only.
+    index = BM25Okapi(docs, k1=k1, b=b)
+    scores = index.get_scores(tokenize(query, mode))
+    order = sorted(range(len(paths)), key=lambda i: -scores[i])
+    return [paths[i] for i in order]
+
+
+def run(issues: pd.DataFrame, gold: dict, mode: str, **params) -> dict[str, float]:
+    rankings = {
+        issue["instance_id"]: rank_files(get_snapshot(issue), issue["problem_statement"], mode, **params)
+        for _, issue in issues.iterrows()
+    }
+    return evaluate(rankings, gold, ks=(1, 5, 10))
+
+
+if __name__ == "__main__":
+    repo = sys.argv[1] if len(sys.argv) > 1 else "pytest-dev/pytest"
+    issues = load_issues(repo)
+    gt = pd.read_parquet("data/gold/ground_truth.parquet")
+    gold = dict(zip(gt.instance_id, gt.gold_files))
+    for mode in ("whole", "split", "both"):
+        r = run(issues, gold, mode)
+        print(f"bm25 files, tokens={mode:5s}  " + "  ".join(
+            f"{k}={v:.3f}" for k, v in r.items() if k != "n") + f"  n={r['n']}")

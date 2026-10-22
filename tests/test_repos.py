@@ -75,3 +75,15 @@ def test_recreate_after_folder_deleted_by_hand(fake_clone):
     shutil.rmtree(wt)
     wt = repos.get_snapshot(issue("a", first))
     assert Repo(wt).head.commit.hexsha == first
+
+
+def test_is_source_file():
+    assert repos.is_source_file("src/_pytest/assertion/rewrite.py")
+    assert repos.is_source_file("setup.py")
+    assert not repos.is_source_file("testing/test_assertrewrite.py")
+    assert not repos.is_source_file("tests/helpers.py")
+    assert not repos.is_source_file("src/pkg/test_utils.py")
+    assert not repos.is_source_file("src/pkg/utils_test.py")
+    assert not repos.is_source_file("conftest.py")
+    assert not repos.is_source_file("doc/en/conf.py")
+    assert not repos.is_source_file("README.md")
