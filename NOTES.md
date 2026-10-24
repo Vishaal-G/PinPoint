@@ -16,6 +16,8 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 | 1 | BM25, whole-identifier tokens, k1=1.5 b=0.75 | file | .455 | .636 | .636 | .539 | 11 |
 | 1b | BM25, split tokens | file | .273 | .636 | .636 | .412 | 11 |
 | 1c | BM25, whole + split tokens | file | .273 | .636 | .727 | .422 | 11 |
+| 2 | Dense, fixed 500-token line chunks (overlap 50), bge-small, max-pool | file | .364 | .727 | .727 | .520 | 11 |
+| 2f | same | function | .100 | .100 | .300 | .143 | 10 |
 
 ## Evaluation (Week 3)
 
@@ -36,3 +38,19 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
   One vector per text blurs fine meaning (crash vs printed). That's what reranking fixes (Week 6).
 - Scores are compressed: unrelated text still gets ~.38. Only the ordering means something;
   don't pick a fixed threshold like 0.5.
+
+## Chunking + brute-force search (Week 4, Strategy 2)
+
+- bge-small sees 512 tokens max. A pytest snapshot is 83 files / 313k tokens (median file 1,510),
+  so whole-file embeddings would see a third of a typical file. Chunk = unit of retrieval.
+- Brute-force search = one matrix-vector product (chunks x 384 @ 384). Exact, microseconds at
+  ~700 chunks. ANN indexes (HNSW/IVF) trade a little recall for speed at millions of vectors.
+- File score = max over its chunks (sum favours big files, mean punishes them).
+- Dense vs BM25 (file): dense won where the issue describes behaviour in prose (8906 "skip at
+  module level": BM25 rank 5 -> dense 1; 7373 skipif caching: 12 -> 3). It lost where the issue's
+  first 512 tokens are noise: 11143 opens with a 400-token `pip list`, so the truncated query
+  never reaches the traceback (BM25 1 -> dense 4). 10/17 issues are over 512 tokens.
+- Function level is poor (MRR .143) by construction: a chunk holds a median 3 (max 18) functions,
+  all with the same score, so ties are broken by file order. Motivates one chunk per function.
+- Hash cache: 6,202 chunks across 11 snapshots, 4,489 embedded (28% saved). Fixed chunks dedupe
+  badly: one inserted line shifts every later window in the file. 32 min on CPU.

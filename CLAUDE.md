@@ -40,7 +40,7 @@ is in **Learning plan** below.
 ## Progress
 
 - **Current week:** Week 4 (Embeddings and chunking).
-- **Current task:** Strategy 2: fixed ~500-token chunks, bge-small, brute-force numpy search.
+- **Current task:** Strategy 3: one chunk per function from silver, embedded by content hash.
 - **Done so far:**
   - Week 0 setup (by Claude). Repo: github.com/Vishaal-G/PinPoint (private), branch `main`.
   - `data.py` (user): reads SWE-bench Lite from `hf://datasets/SWE-bench/SWE-bench_Lite/...`
@@ -81,10 +81,16 @@ is in **Learning plan** below.
     27% of call names match no repo function, 35% exactly one, 37% several (`__init__` → 145).
   - Week 4 toy (Claude, 2026-10-22): `scratch/week4_embedding_toy.py`, bge-small on 5 sentences.
     Paraphrase cosine .74 with word overlap .12; a word-sharing decoy scored .76. Notes in NOTES.md.
+  - Strategy 2 (Claude, 2026-10-24): `chunking.py` (line-aligned ~500-token windows, 50 overlap),
+    `embed.py` (`Embedder`: bge-small, query prefix, sha256 cache in `silver/embeddings_bge-small-en-v1.5.parquet`),
+    `dense.py` (`uv run python -m pinpoint.dense [repo]`; file = max chunk, function = max overlapping chunk).
+    Pytest tune: file acc@1 .364 / acc@5 .727 / MRR .520; function MRR .143 (chunk ties).
+    6,202 chunks → 4,489 embedded (28% saved). 32 min on CPU. Per-issue: `scratch/week4_dense_vs_bm25.py`.
   - Starting slice: `pytest-dev/pytest` (17 issues). Example: pytest-dev__pytest-11143 -> rewrite.py {678}.
 - **Blockers / open questions:** none. `git worktree add` on `/mnt/c` takes ~12s per issue
   (~1h for 300); consider moving the project to `~/` before scaling. Optional: drop unused `datasets` dependency.
-- **Next step:** Week 4: embeddings concept lesson + toy, then function-level chunks embedded by hash.
+- **Next step:** Strategy 3 (function chunks by hash); compare hash savings vs Strategy 2's 28%.
+  Known: issues over 512 tokens get truncated (10/17 pytest); Week 6 query rewriting.
   Week 6 note: down-weight ambiguous callee names.
 
 ## Decisions made
@@ -181,7 +187,7 @@ mapping has a bug or those issues should be excluded. Write down which.)
 **Learn:** `sentence-transformers` (`bge-small`), numpy cosine similarity, what embeddings are.
 
 - [x] Toy: embed 5 sentences, compute a similarity matrix, see which pairs are close and why.
-- [ ] Strategy 2: fixed ~500-token chunks → embed → brute-force numpy search (no vector DB yet).
+- [x] Strategy 2: fixed ~500-token chunks → embed → brute-force numpy search (no vector DB yet).
 - [ ] Strategy 3: one chunk per function (from silver). Embed by content hash, so duplicates are skipped.
       Record how many embeddings the hash saved; that's a resume number.
 - [ ] Both logged to MLflow, evaluated at file and function level.
