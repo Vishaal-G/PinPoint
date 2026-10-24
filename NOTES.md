@@ -24,3 +24,15 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 - Stratify by repo: django is 38% of Lite. A random split could put most of django in one side.
 - Score only the issues you ranked. A gold issue with no ranking counts as a miss, which is
   right for a strategy that crashed but wrong for an issue that was never meant to be in the run.
+
+## Embeddings (Week 4)
+
+- An embedding model turns text into a fixed-length vector (bge-small: 384 floats, unit length).
+  Similar meaning -> vectors point the same way. Cosine = dot product of unit vectors.
+- Trained contrastively: (query, right passage) pairs pulled together, other passages in the
+  batch pushed apart. So "pytest fails ... integer" lands near "test runner crashes ... number"
+  with no shared content words (cosine .74, word overlap .12). BM25 would miss that.
+- Not magic: a decoy sharing the words docstring/number scored .76, above the paraphrase.
+  One vector per text blurs fine meaning (crash vs printed). That's what reranking fixes (Week 6).
+- Scores are compressed: unrelated text still gets ~.38. Only the ordering means something;
+  don't pick a fixed threshold like 0.5.

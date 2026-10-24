@@ -14,6 +14,8 @@ dependencies = [
     "pandas>=3.0.6",
     "pyarrow>=21",
     "rank-bm25>=0.2.2",
+    "sentence-transformers>=6.2.0",
+    "torch>=2.14.1",
     "tree-sitter>=0.26.0",
     "tree-sitter-python>=0.25.0",
     "unidiff>=1.0.1",
@@ -31,3 +33,12 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# CPU-only PyTorch: the default Linux wheel bundles ~2 GB of CUDA libraries we don't use.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

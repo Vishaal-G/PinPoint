@@ -39,8 +39,8 @@ is in **Learning plan** below.
 
 ## Progress
 
-- **Current week:** Week 3 done. Next: Week 4 (Embeddings and chunking).
-- **Current task:** Week 4 toy: embed 5 sentences with bge-small, similarity matrix.
+- **Current week:** Week 4 (Embeddings and chunking).
+- **Current task:** Strategy 2: fixed ~500-token chunks, bge-small, brute-force numpy search.
 - **Done so far:**
   - Week 0 setup (by Claude). Repo: github.com/Vishaal-G/PinPoint (private), branch `main`.
   - `data.py` (user): reads SWE-bench Lite from `hf://datasets/SWE-bench/SWE-bench_Lite/...`
@@ -79,6 +79,8 @@ is in **Learning plan** below.
   - Week 2 results (pytest): 16/17 issues have a gold function (5227 = module constant only).
     73,389 function rows → 14,312 unique hashes (80% dedup). 54,502 call edges; on one snapshot
     27% of call names match no repo function, 35% exactly one, 37% several (`__init__` → 145).
+  - Week 4 toy (Claude, 2026-10-22): `scratch/week4_embedding_toy.py`, bge-small on 5 sentences.
+    Paraphrase cosine .74 with word overlap .12; a word-sharing decoy scored .76. Notes in NOTES.md.
   - Starting slice: `pytest-dev/pytest` (17 issues). Example: pytest-dev__pytest-11143 -> rewrite.py {678}.
 - **Blockers / open questions:** none. `git worktree add` on `/mnt/c` takes ~12s per issue
   (~1h for 300); consider moving the project to `~/` before scaling. Optional: drop unused `datasets` dependency.
@@ -178,7 +180,7 @@ mapping has a bug or those issues should be excluded. Write down which.)
 
 **Learn:** `sentence-transformers` (`bge-small`), numpy cosine similarity, what embeddings are.
 
-- [ ] Toy: embed 5 sentences, compute a similarity matrix, see which pairs are close and why.
+- [x] Toy: embed 5 sentences, compute a similarity matrix, see which pairs are close and why.
 - [ ] Strategy 2: fixed ~500-token chunks → embed → brute-force numpy search (no vector DB yet).
 - [ ] Strategy 3: one chunk per function (from silver). Embed by content hash, so duplicates are skipped.
       Record how many embeddings the hash saved; that's a resume number.
