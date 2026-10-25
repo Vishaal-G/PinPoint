@@ -18,6 +18,10 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 | 1c | BM25, whole + split tokens | file | .273 | .636 | .727 | .422 | 11 |
 | 2 | Dense, fixed 500-token line chunks (overlap 50), bge-small, max-pool | file | .364 | .727 | .727 | .520 | 11 |
 | 2f | same | function | .100 | .100 | .300 | .143 | 10 |
+| 3 | Dense, one chunk per function (silver), bge-small, file = best function | file | .545 | .636 | .727 | .617 | 11 |
+| 3f | same | function | .100 | .300 | .500 | .194 | 10 |
+| 3h | Strategy 3 + `path\nqualname` header on each function | file | .364 | .727 | .818 | .556 | 11 |
+| 3hf | same | function | .100 | .500 | .600 | .241 | 10 |
 
 ## Evaluation (Week 3)
 
@@ -54,3 +58,31 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
   all with the same score, so ties are broken by file order. Motivates one chunk per function.
 - Hash cache: 6,202 chunks across 11 snapshots, 4,489 embedded (28% saved). Fixed chunks dedupe
   badly: one inserted line shifts every later window in the file. 32 min on CPU.
+
+## Function chunks (Week 4, Strategy 3)
+
+- Chunk = one function from `silver/functions`; the embedding cache key is the same sha256 as the
+  silver hash, so a function is embedded once across every snapshot it appears in.
+- Hash savings: 16,545 function chunks across 11 pytest snapshots, 5,843 unique (65% saved,
+  vs 28% for fixed chunks). Unchanged functions keep their hash across commits; fixed windows don't.
+- File level is the best row so far (MRR .617 vs BM25 .539, fixed .520). Function MRR .143 -> .194.
+- Fixed a miss: 5221 (`--fixtures` should show fixture scope): function rank 34 -> 1, because
+  `_showfixtures_main` now gets its own vector instead of sharing a window with its neighbours.
+  7220 also 362 -> 49; 11143 file 4 -> 1.
+- Didn't help: 8906 (skip at module level) file 1 -> 8, function 1 -> 8. The fix is an error
+  message inside `Module._importtestmodule`, but `outcomes.skip` (whose docstring talks about
+  `allow_module_level`) is a closer paraphrase of the issue. Matching the topic is not the same as
+  finding the code that needs to change.
+- Function level is still weak (acc@1 .100): ~1,500 candidates per snapshot, short functions with
+  generic names, and the 512-token query truncation from Strategy 2 is unchanged.
+- Function length (unique pytest functions): median 118 tokens, p75 228, max 2,848. 5.8% are over
+  510 and get their tail truncated; splitting those is a Week 6+ option, not worth it now.
+- Header variant (`--header`, path + qualname above the source): function level up (MRR .194 ->
+  .241, acc@5 .300 -> .500); file acc@1 down (.545 -> .364), acc@10 up (.727 -> .818).
+  Wins: 11143 gold `AssertionRewriter.run` 21 -> 1 (the name says "rewrite", the issue is a rewrite
+  crash); 5103 147 -> 10; tail issues 6116/7220/9359 all climb. Losses: 5221 file 1 -> 2 because
+  `fixtures.py::fixture` now matches an issue about fixtures by name alone; 5495 the same with
+  `rewrite.py`. The name is a strong prior: it rescues weak bodies and over-rewards on-topic files.
+- Header dedupes slightly worse: 5,939 texts embedded vs 5,843 (same source at a different path
+  is now a different text). Keep header for function ranking; file-level choice waits for hybrid.
+

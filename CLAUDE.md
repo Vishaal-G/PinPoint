@@ -2,7 +2,7 @@
 
 Pinpoint is a GitHub bot that reads a new issue and points to the functions most likely responsible,
 benchmarked on SWE-bench Lite. The user is building it **to learn the libraries**. The week-by-week plan
-is in **Learning plan** below.
+is in `LEARNING_PLAN.md`.
 
 ## Claude's role: builder who explains
 
@@ -28,19 +28,19 @@ is in **Learning plan** below.
 ## Session protocol
 
 **On start** (user says "start", "let's continue", "Week N…", or similar):
-1. Read the **Progress** section below and the current week in **Learning plan** below.
+1. Read the **Progress** section below and the current week in `LEARNING_PLAN.md`.
 2. Give a 2–3 line recap: where they left off, what's next, any open question from last time.
 3. Ask if they want to continue that task or do something else.
 
 **On stop** (user says "stopping", "done for today", "wrap up", or similar):
 1. Update **Progress** below: current week/task, what got done, blockers, next step.
-2. Tick finished checkboxes in **Learning plan** below.
+2. Tick finished checkboxes in `LEARNING_PLAN.md`.
 3. Add one line to the **Session log** (newest first).
 
 ## Progress
 
-- **Current week:** Week 4 (Embeddings and chunking).
-- **Current task:** Strategy 3: one chunk per function from silver, embedded by content hash.
+- **Current week:** Week 5 (Move to Databricks).
+- **Current task:** Week 5 concept lesson, then the Spark/Delta toy notebook.
 - **Done so far:**
   - Week 0 setup (by Claude). Repo: github.com/Vishaal-G/PinPoint (private), branch `main`.
   - `data.py` (user): reads SWE-bench Lite from `hf://datasets/SWE-bench/SWE-bench_Lite/...`
@@ -86,10 +86,15 @@ is in **Learning plan** below.
     `dense.py` (`uv run python -m pinpoint.dense [repo]`; file = max chunk, function = max overlapping chunk).
     Pytest tune: file acc@1 .364 / acc@5 .727 / MRR .520; function MRR .143 (chunk ties).
     6,202 chunks → 4,489 embedded (28% saved). 32 min on CPU. Per-issue: `scratch/week4_dense_vs_bm25.py`.
+  - Strategy 3 (Claude, 2026-10-24): `dense_functions.py` (`uv run python -m pinpoint.dense_functions [repo] [--header]`),
+    one chunk per silver function, cache key = silver hash. 16,545 chunks -> 5,843 unique (65% saved vs 28%).
+    Pytest tune: no header file MRR .617 (best file row), function MRR .194;
+    `--header` (path + qualname) file MRR .556, function acc@5 .500 / MRR .241 (best function row).
+    5.8% of functions exceed 512 tokens. Per-issue: `scratch/week4_functions_vs_fixed.py`. Week 4 done.
   - Starting slice: `pytest-dev/pytest` (17 issues). Example: pytest-dev__pytest-11143 -> rewrite.py {678}.
 - **Blockers / open questions:** none. `git worktree add` on `/mnt/c` takes ~12s per issue
   (~1h for 300); consider moving the project to `~/` before scaling. Optional: drop unused `datasets` dependency.
-- **Next step:** Strategy 3 (function chunks by hash); compare hash savings vs Strategy 2's 28%.
+- **Next step:** Week 5 Databricks toy: pandas -> Spark DataFrame, same query in PySpark and SQL, Delta write/read.
   Known: issues over 512 tokens get truncated (10/17 pytest); Week 6 query rewriting.
   Week 6 note: down-weight ambiguous callee names.
 
@@ -105,173 +110,10 @@ is in **Learning plan** below.
 
 ## Session log
 
+- 2026-10-24: Strategy 2 (fixed chunks) and Strategy 3 (function chunks, 65% hash savings, header variant). Week 4 done.
 - 2026-10-22: Synced Progress. Locked 200/100 split, re-scored BM25 on pytest tune (MRR .539). Week 3 done.
 - 2026-10-21: Built metrics.py, tokenizer, BM25 file baseline, MLflow tracking. BM25 whole-token MRR .491 on pytest.
 - 2026-10-20: Switched to Claude-writes-code mode. Built repos.py, Week 1 demo, parse.py, ground truth, call edges, pipeline. Weeks 1–2 done.
 - 2026-10-09: Claude did Week 0 setup. User wrote data.py and patches.py (reviewed and fixed), Claude wrote tests.
   User prefers direct implementation guides, no warm-ups. Next: repos.py.
 - 2026-10-03: Wrote the project description and the learning plan. Assigned Week 0.
-
----
-
-# Learning plan
-
-> Your 7-week schedule is fine for someone who already knows the tools. Since you're learning them,
-> plan on **~10 weeks**. The schedule below has a working baseline by week 3, just like your original.
-
----
-
-## Week 0 — Setup (a few hours)
-
-**Learn:** `uv` (environments), git/GitHub, `pytest` basics.
-
-- [x] Install `uv`; create a project pinned to **Python 3.12**. You have 3.14, but some libraries
-      (tree-sitter grammars, PyTorch for sentence-transformers) can lag on brand-new Python versions,
-      and Databricks serverless runs 3.11/3.12. Match it.
-- [x] `git init`, push to a new GitHub repo, add `.gitignore` (ignore `data/`, `.venv/`, `scratch/`).
-- [x] Folder layout: `src/pinpoint/`, `tests/`, `scratch/`, `data/`, `NOTES.md`.
-- [x] Write one trivial function and one pytest test. Run `pytest`. See it pass, then make it fail.
-
-**Check yourself:** Can you explain what a virtual environment is and why the test file name matters?
-
-## Week 1 — Get the data
-
-**Learn:** Hugging Face `datasets`, `GitPython`, `unidiff` (parsing patches), pandas → parquet.
-
-- [x] Load `princeton-nlp/SWE-bench_Lite` (split `test`). Explore it in a notebook: what are
-      `instance_id`, `repo`, `base_commit`, `patch`, `test_patch`, `problem_statement`?
-- [x] Count issues per repo. Pick your small starting repo (a smaller one beats Django).
-- [x] With GitPython: clone the repo once, then check out one issue's `base_commit`.
-      Then learn `git worktree`, which lets you have several commits checked out without re-cloning.
-- [x] Parse one gold `patch` with `unidiff`: list the files changed and line numbers of the
-      **source (before-fix) side** of each hunk. Write down why it's the source side.
-- [x] Save the issues table as `data/bronze/issues.parquet`.
-
-**Milestone:** for one issue you can print the bug report, open the buggy file at the base commit,
-and point at the lines the fix changed.
-
-## Week 2 — Parsing and ground truth (the most important correctness work)
-
-**Learn:** `tree-sitter` (py-tree-sitter + tree-sitter-python), `hashlib`, pytest fixtures.
-
-- [x] Toy: parse a 10-line Python string, print the syntax tree, find every `function_definition`.
-- [x] Extract functions and classes: qualified name (`Class.method`), file, start/end line, source text.
-- [x] Extract call edges: inside each function, find `call` nodes and record the called name.
-      (This will be imperfect. Name matching only, no type resolution. That's OK; note it.)
-- [x] Content hash per function (`sha256` of the source text): the key for "embed only once".
-- [x] Ground truth: overlap gold-patch source line ranges with function line ranges.
-      Think about edge cases: a fix that only *adds* a new function, a change outside any function
-      (module-level code), a file that's new.
-- [x] pytest tests on a small fixture file you write by hand, where you know the right answer.
-- [x] Tables: `silver/functions`, `silver/edges`, `silver/snapshot_membership`, `gold/ground_truth`.
-
-**Check yourself:** What % of your issues have ≥1 ground-truth function? (If it's low, your
-mapping has a bug or those issues should be excluded. Write down which.)
-
-## Week 3 — Evaluation harness + BM25 baseline (first real result)
-
-**Learn:** `rank_bm25`, `mlflow` (tracking, local UI), writing metric functions.
-
-- [x] Write `accuracy_at_k`, `recall_at_k`, `mrr` **yourself**, with pytest tests on hand-made
-      rankings. This harness is what makes the whole project credible.
-- [x] Code tokenizer: split `snake_case` and `camelCase`, lowercase. Compare with/without.
-- [x] Strategy 1: BM25 over whole files at each issue's base commit. Score at file level.
-- [x] Log it as an MLflow run (params + metrics). Open `mlflow ui` and look at it.
-- [x] Split issues into tune (200) / held-out (100) **now**, with a fixed seed, and save the split.
-      Never look at held-out numbers until week 9.
-
-**Milestone:** row 1 of your results table.
-
-## Week 4 — Embeddings and chunking
-
-**Learn:** `sentence-transformers` (`bge-small`), numpy cosine similarity, what embeddings are.
-
-- [x] Toy: embed 5 sentences, compute a similarity matrix, see which pairs are close and why.
-- [x] Strategy 2: fixed ~500-token chunks → embed → brute-force numpy search (no vector DB yet).
-- [ ] Strategy 3: one chunk per function (from silver). Embed by content hash, so duplicates are skipped.
-      Record how many embeddings the hash saved; that's a resume number.
-- [ ] Both logged to MLflow, evaluated at file and function level.
-
-**Check yourself:** Why does AST chunking help? Find one issue where it fixed a miss, and one where it didn't.
-
-## Week 5 — Move to Databricks
-
-**Learn:** Databricks Free Edition, Unity Catalog (`catalog.schema.table`), Delta Lake, PySpark,
-Spark SQL, Jobs, AI Search (Delta Sync index, hybrid queries, filters).
-
-- [ ] Toy: in a notebook, make a Spark DataFrame from a pandas one, run the same query in
-      PySpark and in SQL, write it as a Delta table, read it back.
-- [ ] Upload your parquet files → bronze/silver/gold Delta tables. Rewrite one pandas step in PySpark.
-- [ ] Check the Free Edition limits yourself (compute quotas, outbound internet). If cloning
-      repos is blocked or slow there, keep parsing local and upload results. That's a fine design.
-- [ ] Create an AI Search endpoint + Delta Sync index on gold functions. Query it from a notebook.
-- [ ] Strategy 4: hybrid search. Over-fetch, then filter to the issue's snapshot via membership.
-- [ ] Turn your pipeline into a Databricks Job.
-
-**Milestone:** row 4, plus confirmation that the cloud setup reproduces your local row 3.
-
-## Week 6 — LLMs, graph expansion, reranking
-
-**Learn:** Anthropic Python SDK (messages, structured output via tool use, token usage),
-`CrossEncoder`.
-
-- [ ] Toy: one API call; print `usage` and compute cost by hand.
-- [ ] Strategy 5: query rewriting. First a regex extractor (identifiers, stack-trace frames), then an
-      LLM cleanup. Measure each separately: you'll know which part actually helped.
-- [ ] Strategy 6: call-graph expansion. Add callers/callees of the top hits from `silver/edges`.
-      Test how many neighbours to add and how to score them.
-- [ ] Strategy 7: cross-encoder reranking on the top ~50.
-
-## Week 7 — Agent baseline
-
-**Learn:** tool calling (writing the agent loop yourself, no framework), MLflow tracing.
-
-- [ ] Tools: `grep(pattern)` and `open_file(path, start, end)`, sandboxed to the snapshot dir.
-- [ ] Write the loop: send messages → model asks for a tool → run it → send result → repeat, with a
-      step limit. Ask for a final ranked list of functions as structured output.
-- [ ] Strategy A on the tune set: accuracy, latency, $/query. Strategy H: seed the agent with
-      Pinpoint's top-10.
-- [ ] Add MLflow tracing to the retrieval steps; inspect 5 failures and write down why they failed.
-
-## Week 8 — Product: API and bot
-
-**Learn:** FastAPI, Pydantic, GitHub Actions YAML, PyGithub, `git blame` via GitPython.
-
-- [ ] Toy: a FastAPI "hello" endpoint, then one with a Pydantic request/response model; test with
-      `TestClient` in pytest.
-- [ ] `/triage` endpoint: best strategy + generation (explanation citing file:line) + owner from blame.
-- [ ] **Design decision to make here (we'll discuss):** where the API runs so GitHub Actions can
-      reach it, and how it authenticates.
-- [ ] Workflow on `issues: opened` → call API → post comment. Try it on your own test repo.
-- [ ] Log 👍/👎 reactions as feedback.
-
-## Week 9 — Demo UI and final results
-
-**Learn:** Streamlit, Databricks Apps.
-
-- [ ] Streamlit app: repo picker, onboarding chat, "paste an issue" box.
-- [ ] Deploy as a Databricks App.
-- [ ] Run **held-out** numbers once for all strategies. Build the final results table.
-
-## Week 10 — Ship
-
-- [ ] README: problem, architecture diagram, results table, honest limitations (e.g. name-only call graph).
-- [ ] 60-second demo video, LinkedIn post, resume bullets with real numbers.
-- [ ] Optional: offer the bot to a small open-source project (with maintainer permission).
-
----
-
-## Library checklist (tick when you could explain it to a friend)
-
-| Library | Week | Done |
-|---|---|---|
-| uv, pytest | 0 | n/a (Claude handles) |
-| datasets, GitPython, unidiff, pandas/parquet | 1 | [x] |
-| tree-sitter, hashlib | 2 | [x] |
-| rank_bm25, MLflow tracking | 3 | [x] |
-| sentence-transformers, numpy | 4 | [ ] |
-| Databricks, Unity Catalog, Delta, PySpark, Spark SQL, AI Search, Jobs | 5 | [ ] |
-| Anthropic SDK, CrossEncoder | 6 | [ ] |
-| Tool calling, MLflow tracing | 7 | [ ] |
-| FastAPI, Pydantic, GitHub Actions, PyGithub | 8 | [ ] |
-| Streamlit, Databricks Apps | 9 | [ ] |
