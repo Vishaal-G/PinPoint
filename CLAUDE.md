@@ -40,7 +40,7 @@ is in `LEARNING_PLAN.md`.
 ## Progress
 
 - **Current week:** Week 5 (Move to Databricks).
-- **Current task:** Week 5 concept lesson, then the Spark/Delta toy notebook.
+- **Current task:** Week 5 last box: turn the pipeline into a Databricks Job.
 - **Done so far:**
   - Week 0 setup (by Claude). Repo: github.com/Vishaal-G/PinPoint (private), branch `main`.
   - `data.py` (user): reads SWE-bench Lite from `hf://datasets/SWE-bench/SWE-bench_Lite/...`
@@ -91,10 +91,21 @@ is in `LEARNING_PLAN.md`.
     Pytest tune: no header file MRR .617 (best file row), function MRR .194;
     `--header` (path + qualname) file MRR .556, function acc@5 .500 / MRR .241 (best function row).
     5.8% of functions exceed 512 tokens. Per-issue: `scratch/week4_functions_vs_fixed.py`. Week 4 done.
+  - Week 5 (2026-10-26, Databricks Free Edition, serverless). Notebooks in `scratch/` (gitignored), Databricks
+    source format, imported via Workspace -> Import: `week5_spark_toy.py`, `week5_upload_delta.py`,
+    `week5_vector_index.py`, `week5_hybrid.py`. UC tables: `workspace.pinpoint_{bronze,silver,gold}.*`, raw files in
+    volume `/Volumes/workspace/pinpoint_bronze/raw`. Serverless has outbound internet (git clone works).
+    `%pip` broke the env; use preinstalled `databricks-sdk`. Vector search endpoint `pinpoint`, Delta Sync index
+    `workspace.pinpoint_gold.function_vectors_index` (5,843 bodies, self-managed vectors, score = 1/(1+L2^2)).
+    `scratch/week5_export_queries.py` writes `gold/issue_queries.parquet` + `gold/candidates.parquet` for upload.
+    Cloud ANN + snapshot post-filter reproduces local row 3 (file MRR .617). Limits: HYBRID max 200 results,
+    ANN returned 2,097 of 5,843 silently. Databricks HYBRID file MRR .357 (weak keyword side).
+  - `fusion.py` (Claude, 2026-10-26, `uv run python -m pinpoint.fusion`): RRF of BM25 + dense. File RRF MRR .561
+    (acc@5 .727). BM25 over function source = best function row (acc@1 .200, MRR .257). Rows in NOTES.md.
   - Starting slice: `pytest-dev/pytest` (17 issues). Example: pytest-dev__pytest-11143 -> rewrite.py {678}.
 - **Blockers / open questions:** none. `git worktree add` on `/mnt/c` takes ~12s per issue
   (~1h for 300); consider moving the project to `~/` before scaling. Optional: drop unused `datasets` dependency.
-- **Next step:** Week 5 Databricks toy: pandas -> Spark DataFrame, same query in PySpark and SQL, Delta write/read.
+- **Next step:** Databricks Job (Week 5 last box). Open: fn_mrr for Databricks rows (query `pinpoint_gold.strategy4_results`).
   Known: issues over 512 tokens get truncated (10/17 pytest); Week 6 query rewriting.
   Week 6 note: down-weight ambiguous callee names.
 
@@ -110,6 +121,7 @@ is in `LEARNING_PLAN.md`.
 
 ## Session log
 
+- 2026-10-26: Week 5: Spark/Delta toy, parquet -> UC Delta, vector index, Strategy 4 (Databricks hybrid + our RRF).
 - 2026-10-24: Strategy 2 (fixed chunks) and Strategy 3 (function chunks, 65% hash savings, header variant). Week 4 done.
 - 2026-10-22: Synced Progress. Locked 200/100 split, re-scored BM25 on pytest tune (MRR .539). Week 3 done.
 - 2026-10-21: Built metrics.py, tokenizer, BM25 file baseline, MLflow tracking. BM25 whole-token MRR .491 on pytest.

@@ -83,13 +83,13 @@ mapping has a bug or those issues should be excluded. Write down which.)
 **Learn:** Databricks Free Edition, Unity Catalog (`catalog.schema.table`), Delta Lake, PySpark,
 Spark SQL, Jobs, AI Search (Delta Sync index, hybrid queries, filters).
 
-- [ ] Toy: in a notebook, make a Spark DataFrame from a pandas one, run the same query in
+- [x] Toy: in a notebook, make a Spark DataFrame from a pandas one, run the same query in
       PySpark and in SQL, write it as a Delta table, read it back.
-- [ ] Upload your parquet files → bronze/silver/gold Delta tables. Rewrite one pandas step in PySpark.
+- [x] Upload your parquet files → bronze/silver/gold Delta tables. Rewrite one pandas step in PySpark.
 - [ ] Check the Free Edition limits yourself (compute quotas, outbound internet). If cloning
       repos is blocked or slow there, keep parsing local and upload results. That's a fine design.
-- [ ] Create an AI Search endpoint + Delta Sync index on gold functions. Query it from a notebook.
-- [ ] Strategy 4: hybrid search. Over-fetch, then filter to the issue's snapshot via membership.
+- [x] Create an AI Search endpoint + Delta Sync index on gold functions. Query it from a notebook.
+- [x] Strategy 4: hybrid search. Over-fetch, then filter to the issue's snapshot via membership.
 - [ ] Turn your pipeline into a Databricks Job.
 
 **Milestone:** row 4, plus confirmation that the cloud setup reproduces your local row 3.

@@ -22,6 +22,15 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 | 3f | same | function | .100 | .300 | .500 | .194 | 10 |
 | 3h | Strategy 3 + `path\nqualname` header on each function | file | .364 | .727 | .818 | .556 | 11 |
 | 3hf | same | function | .100 | .500 | .600 | .241 | 10 |
+| 3c | Strategy 3 in Databricks: ANN index (asked 5843, got 2097), post-filter to snapshot | file | .545 | .636 | .727 | .617 | 11 |
+| 3cf | same | function | .100 | .300 | .500 | — | 10 |
+| 4k | Databricks FULL_TEXT (whole issue text over function source), n=200, post-filter | file | .091 | .273 | .364 | .215 | 11 |
+| 4kf | same | function | .000 | .200 | .300 | — | 10 |
+| 4 | Databricks HYBRID (ANN + FULL_TEXT, rank-fused), n=200, post-filter | file | .091 | .727 | .727 | .357 | 11 |
+| 4f | same | function | .000 | .400 | .500 | — | 10 |
+| 1f | BM25 whole tokens over each function's source (silver), per snapshot | function | .200 | .300 | .300 | .257 | 10 |
+| 4L | Our hybrid: RRF(BM25 whole file, dense Strategy 3 file), k=60, equal weights | file | .455 | .727 | .727 | .561 | 11 |
+| 4Lf | Our hybrid: RRF(BM25 function, dense function), k=60, equal weights | function | .100 | .300 | .400 | .199 | 10 |
 
 ## Evaluation (Week 3)
 
@@ -86,3 +95,79 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 - Header dedupes slightly worse: 5,939 texts embedded vs 5,843 (same source at a different path
   is now a different text). Keep header for function ranking; file-level choice waits for hybrid.
 
+
+## Spark + Delta toy (Week 5)
+
+- Free Edition = serverless compute only; catalog `workspace`, tables are `catalog.schema.table`
+  (`workspace.pinpoint_toy.functions`). Import a `.py` starting with `# Databricks notebook source`
+  and it becomes a notebook (`# COMMAND ----------` = cell break, `# MAGIC` = markdown/SQL cell).
+- Spark is lazy: transformations build a plan, `display()`/`count()`/`toPandas()` run it.
+  `.explain()` shows `HashAggregate` + `Exchange` (the shuffle). PySpark and SQL compile to the same plan.
+- Delta never edits a parquet file in place. Every write = new files + a new JSON entry in
+  `_delta_log`; `DESCRIBE HISTORY` reads that log. Time travel: `VERSION AS OF n`.
+- UPDATE on UC managed tables uses deletion vectors (merge-on-read: mark the row dead in a sidecar
+  file, add a new file) instead of rewriting the whole file (copy-on-write).
+- Surprise: a version 2 `OPTIMIZE` appeared 3s after the UPDATE. Auto-compaction merges small
+  files (the small-file problem: per-file overhead dominates). Old files stay until `VACUUM`
+  (default 7 days), which is what bounds time travel.
+- `.toPandas()` pulls every row to the driver: fine for 8 rows, a crash at scale.
+
+## Parquet -> Unity Catalog (Week 5)
+
+- Route: upload files to a volume (`/Volumes/workspace/pinpoint_bronze/raw`, a governed folder for
+  raw files), then `spark.read.parquet(...).write.saveAsTable(...)` -> managed Delta tables in
+  schemas `pinpoint_bronze` / `pinpoint_silver` / `pinpoint_gold`. ~48 MB total, UI upload is fine.
+- Managed table: Databricks owns the storage, DROP deletes the data. External: you own the path.
+- Free Edition serverless HAS outbound internet (2026-10-26): `curl github.com` 200, `git ls-remote` works.
+  So cloning + parsing could run in Databricks, not only locally.
+- PySpark rewrite of `week2_edges_check.py`, all 17 snapshots: 236,078 call names, one .474 /
+  none .302 / many .224, identical to pandas. Mapping: `.str.split().str[-1]` -> `element_at(split())`,
+  `Series.map` -> left join, `fillna` -> `coalesce`. Small side of a join is broadcast
+  (BroadcastHashJoin); two big sides need a shuffle + SortMergeJoin.
+
+## Vector search index (Week 5)
+
+- `%pip install databricks-vectorsearch` broke the serverless environment ("Failure starting repl");
+  fix = Environment panel -> remove dependency -> Apply. Use the preinstalled `databricks-sdk`
+  (`w.vector_search_endpoints`, `w.vector_search_indexes`) instead: same REST API, nothing to install.
+- Endpoint `pinpoint` (STANDARD) + Delta Sync index `workspace.pinpoint_gold.function_vectors_index`
+  on `function_vectors` (5,843 function bodies, self-managed bge-small vectors cast to float32,
+  CDF on, TRIGGERED sync). Queries embedded locally with the same model + prefix.
+- ANN recall@10 vs brute force: 1.0 on all 11 pytest tune issues, same top-1. Expected at 5.8k vectors.
+- Score is NOT cosine: score = 1 / (1 + L2^2) (checked: cos .7813 -> .6957). Unit vectors make
+  L2^2 = 2 - 2cos, so the ranking matches cosine but cosine thresholds don't transfer.
+- Global index wastes slots: pytest-11143 top-10 has only 3 functions from its own snapshot; the rest
+  are other commits' versions of the same functions (is_rewrite_disabled x2, pytest_runtest_protocol x3,
+  pastebin.pytest_configure x3). Gold AssertionRewriter.run (cos .725) misses the top 10.
+  -> Strategy 4 must over-fetch then filter to the snapshot (or filter inside the index).
+
+## Hybrid + snapshot filter (Week 5, Strategy 4)
+
+- Post-filter: fetch top n from the global index, keep this snapshot's functions. ~1 in 5 survives
+  (n=100 -> 19 kept, n=500 -> 106). Over-fetch 5-10x what you need. Pre-filter (filters_json on an
+  instance_id column) would need one vector per (snapshot, function): 16,545 vs 5,843, no dedup.
+- Limits found: HYBRID max 200 results per query (hard error). ANN asked 5843 -> got 2097 with no
+  error (1000 and 2000 came back exactly). Always check rows returned vs asked.
+- Milestone: cloud ANN reproduces local row 3 exactly at file level (.545/.636/.727/.617).
+- Hybrid (n=200): file acc@5 .636 -> .727, fn acc@5 .3 -> .4, but file acc@1 .545 -> .091, MRR .611 -> .357.
+  Per issue (fn rank ANN -> HYBRID): 5495 7->2, 8906 8->3, 5692 4->3; 5221 1->5, 11143 21->44, 7373 3->7.
+- Why: RRF weights both lists equally and assumes both are decent. Databricks' keyword side is weak
+  here (file acc@1 .091 vs our BM25 .455): whole issue text as query, tokenizer not built for code.
+  Fusing a strong retriever with a weak one helps recall@5 but wrecks the top spot.
+- Next ideas: RRF of OUR BM25 + dense (isolates fusion vs keyword engine); identifiers-only query text
+  for the keyword side (Week 6 query rewriting); weighted RRF.
+
+## Our RRF: BM25 + dense (Week 5, Strategy 4L, `pinpoint.fusion`)
+
+- Both sides reproduce their rows (BM25 file .539, dense file .617), so fusion is tested on correct inputs.
+- File: RRF k=60 gives acc@5 .727 (best tie) but MRR .561 < dense .617. Same shape as Databricks
+  HYBRID, much milder (.561 vs .357): our keyword side is decent, theirs wasn't. So fusion itself
+  is fine; their keyword engine was most of the problem.
+- Function: BM25 over function source ALONE is the best function row so far (acc@1 .200, MRR .257
+  vs header-dense .241). Wins 5495 and 5692 at rank 1, 8906 at 2: issues that name identifiers.
+- RRF rewards agreement, punishes lone winners. 11143: bm25 44, dense 21 -> fused 8 (both half-right).
+  5221: dense 1, bm25 474 -> fused 42: 1/61 + 1/534 = .018 loses to anything ~rank 20 in both (2/80 = .025).
+- Hard issues (5103, 6116, 7220, 9359) are bad in both lists; fusion can't rescue what neither finds.
+- Sensitivity (not logged as rows; 11 issues is too few to pick from): file dense x2 weight
+  .545/.727/.818/.626 (best file numbers), k=10 ~ k=60. Function dense x2 drops to MRR .116.
+  Revisit weights on the full 200-issue tune set.
