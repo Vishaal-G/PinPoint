@@ -103,8 +103,10 @@ is in `LEARNING_PLAN.md`.
   - `fusion.py` (Claude, 2026-10-26, `uv run python -m pinpoint.fusion`): RRF of BM25 + dense. File RRF MRR .561
     (acc@5 .727). BM25 over function source = best function row (acc@1 .200, MRR .257). Rows in NOTES.md.
   - Starting slice: `pytest-dev/pytest` (17 issues). Example: pytest-dev__pytest-11143 -> rewrite.py {678}.
-- **Blockers / open questions:** none. `git worktree add` on `/mnt/c` takes ~12s per issue
-  (~1h for 300); consider moving the project to `~/` before scaling. Optional: drop unused `datasets` dependency.
+- **Blockers / open questions:** TWO COPIES. `~/PinPoint` was made on 2026-10-22 (pushed cbc253c), but all later
+  work (Weeks 4-5) happened in `/mnt/c/Users/Visha/Desktop/PinPoint`, which is the current one. `~/PinPoint` only has an
+  uncommitted early `embed.py` draft (superseded by `dense_functions.py`). User to decide: delete it, or re-clone
+  into `~/` and move `data/` there (worktree add ~12s/issue on `/mnt/c`, ~1h for 300). Optional: drop unused `datasets` dependency.
 - **Next step:** Databricks Job (Week 5 last box). Open: fn_mrr for Databricks rows (query `pinpoint_gold.strategy4_results`).
   Known: issues over 512 tokens get truncated (10/17 pytest); Week 6 query rewriting.
   Week 6 note: down-weight ambiguous callee names.
