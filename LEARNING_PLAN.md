@@ -102,7 +102,7 @@ Spark SQL, Jobs, AI Search (Delta Sync index, hybrid queries, filters).
 - [x] Toy: one API call; print `usage` and compute cost by hand.
 - [x] Strategy 5: query rewriting. First a regex extractor (identifiers, stack-trace frames), then an
       LLM cleanup. Measure each separately: you'll know which part actually helped.
-- [ ] Strategy 6: call-graph expansion. Add callers/callees of the top hits from `silver/edges`.
+- [x] Strategy 6: call-graph expansion. Add callers/callees of the top hits from `silver/edges`.
       Test how many neighbours to add and how to score them.
 - [ ] Strategy 7: cross-encoder reranking on the top ~50.
 

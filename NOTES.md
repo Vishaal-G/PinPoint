@@ -35,6 +35,8 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 | 5ad | Dense file, query = title + regex terms kept only if in repo vocab (repo-title+terms) | file | .364 | .727 | .727 | .532 | 11 |
 | 5b | BM25 file, query = LLM rewrite (Llama 3.3 70B tool call: summary + guessed names + terms) | file | .455 | .818 | .818 | .583 | 11 |
 | 5bf | Dense function, query = title + LLM summary + guessed names (title+llm) | function | .200 | .300 | .300 | .231 | 10 |
+| 6 | Dense function (Strategy 3) + call-graph expansion: top-5 seeds, callers+callees, 1/m ambiguity weight, alpha=1 | function | .300 | .400 | .400 | .344 | 10 |
+| 6b | same expansion on BM25 function seeds | function | .000 | .000 | .200 | .038 | 10 |
 
 ## Evaluation (Week 3)
 
@@ -243,3 +245,21 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
   whole-identifier BM25 can't match those, split tokens could. Low evidence of memorised pytest fixes.
 - 5a vs 5b: inferring names helps more than extracting them, but neither beats the raw issue
   everywhere. Rewriting is a per-retriever choice, not a global switch.
+
+## Call-graph expansion (Week 6, Strategy 6, `pinpoint.graph`)
+
+- Ceiling first: gold is 1 hop from the dense top-5 (and not in it) for 2/10 issues; 0/10 for BM25.
+  Neighbourhood of 5 seeds ~25 functions (max 158), so the bonus must be selective.
+- Rank-based: score = 1/(60+rank) + alpha * max over adjacent top-k seeds of w / (60+seed rank);
+  name-only edges resolve to every function with that short name, weight 1/m for m targets.
+- Pre-registered (k=5, alpha=1, both directions, weighted) on dense seeds: MRR .194 -> .344, acc@1
+  .1 -> .3 (best function row). 11143 21 -> 1 (caller `run` of the failing frame), 5495 7 -> 1,
+  5692 4 -> 1; but 5221 1 -> 26, 8906 8 -> 27. Three up, two down, n=10.
+- On BM25 seeds it collapses (.257 -> .038): 5495 and 5692 were already rank 1 and neighbours jumped over them.
+- Why: with alpha=1 a weight-1 neighbour scores above its own seed. That's right when the top hit is
+  a near miss (dense: topically close, often the frame or a helper) and wrong when it is already the
+  answer (BM25: exact identifier match). Expand the retriever whose errors are near misses.
+- Callers carry the gain (callers only .330, callees only .135): the fix tends to be in what CALLS the
+  topical hit. Ambiguity weighting barely mattered here (.344 vs .334 unweighted).
+- cap=True (neighbour lands right after its seed, added after seeing results, so sensitivity only):
+  safe but small: dense .230, BM25 .214. Leapfrogging is where the gain is, and where the risk is.

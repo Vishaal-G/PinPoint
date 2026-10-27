@@ -40,7 +40,7 @@ is in `LEARNING_PLAN.md`.
 ## Progress
 
 - **Current week:** Week 5 (Move to Databricks).
-- **Current task:** Week 6 Strategy 6 (call-graph expansion).
+- **Current task:** Week 6 Strategy 7 (cross-encoder reranking).
 - **Done so far:**
   - Week 0 setup (by Claude). Repo: github.com/Vishaal-G/PinPoint (private), branch `main`.
   - `data.py` (user): reads SWE-bench Lite from `hf://datasets/SWE-bench/SWE-bench_Lite/...`
@@ -109,12 +109,15 @@ is in `LEARNING_PLAN.md`.
     `query.py` (5a regex extractor + repo-vocab filter): mostly negative, best BM25 file .550. `llm_query.py` (5b,
     Llama 3.3 70B forced tool call, cached in data/gold/llm_queries.parquet): BM25 file .583, dense fn .231; hurts
     BM25 fn and dense file. Rewriting is per-retriever. `fusion.side_rankings` takes custom queries.
+  - `graph.py` (Strategy 6, 2026-10-26): name-only call graph, 1/m ambiguity weights, rank-based expansion.
+    Dense fn seeds MRR .194 -> .344 (best fn row; 3 up 2 down, n=10); BM25 seeds collapse (.038): neighbours
+    overtake correct exact-match hits. Callers carry the gain. `cap=True` safe but small.
   - Starting slice: `pytest-dev/pytest` (17 issues). Example: pytest-dev__pytest-11143 -> rewrite.py {678}.
 - **Blockers / open questions:** TWO COPIES. `~/PinPoint` was made on 2026-10-22 (pushed cbc253c), but all later
   work (Weeks 4-5) happened in `/mnt/c/Users/Visha/Desktop/PinPoint`, which is the current one. `~/PinPoint` only has an
   uncommitted early `embed.py` draft (superseded by `dense_functions.py`). User to decide: delete it, or re-clone
   into `~/` and move `data/` there (worktree add ~12s/issue on `/mnt/c`, ~1h for 300). Optional: drop unused `datasets` dependency.
-- **Next step:** Strategy 6 call-graph expansion, then 7 cross-encoder reranking. Before scaling to 300: add embed/sync/evaluate job tasks. Open: check Free Edition compute quotas (last Week 5 box).
+- **Next step:** Strategy 7 cross-encoder reranking, then Week 7 agent baseline. Before scaling to 300: add embed/sync/evaluate job tasks. Open: check Free Edition compute quotas (last Week 5 box).
   Known: issues over 512 tokens get truncated (10/17 pytest); Week 6 query rewriting.
   Week 6 note: down-weight ambiguous callee names.
 
