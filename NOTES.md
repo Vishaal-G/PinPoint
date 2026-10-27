@@ -31,6 +31,10 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 | 1f | BM25 whole tokens over each function's source (silver), per snapshot | function | .200 | .300 | .300 | .257 | 10 |
 | 4L | Our hybrid: RRF(BM25 whole file, dense Strategy 3 file), k=60, equal weights | file | .455 | .727 | .727 | .561 | 11 |
 | 4Lf | Our hybrid: RRF(BM25 function, dense function), k=60, equal weights | function | .100 | .300 | .400 | .199 | 10 |
+| 5a | BM25 file, query = raw issue + regex-extracted code terms (`pinpoint.query`, raw+terms) | file | .455 | .727 | .727 | .550 | 11 |
+| 5ad | Dense file, query = title + regex terms kept only if in repo vocab (repo-title+terms) | file | .364 | .727 | .727 | .532 | 11 |
+| 5b | BM25 file, query = LLM rewrite (Llama 3.3 70B tool call: summary + guessed names + terms) | file | .455 | .818 | .818 | .583 | 11 |
+| 5bf | Dense function, query = title + LLM summary + guessed names (title+llm) | function | .200 | .300 | .300 | .231 | 10 |
 
 ## Evaluation (Week 3)
 
@@ -188,3 +192,54 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
   and pyspark's createDataFrame fails ("Cannot convert ChunkedArray to Array"). Fix: cast non-numeric
   columns to object first (`jobs.plain_dtypes`).
 - CLI: installed to ~/.local/bin (no sudo); OAuth U2M login `databricks auth login --profile pinpoint`.
+
+## LLM toy (Week 6, Databricks Foundation Model endpoints)
+
+- Free Edition serves open models (llama-3.3-70b, llama-4-maverick, gpt-oss-120b/20b, qwen, deepseek,
+  gemma) at `databricks-*` endpoints; `WorkspaceClient(profile="pinpoint").serving_endpoints.query(...)`,
+  no API key. Response has `usage.prompt_tokens / completion_tokens` like any LLM API.
+- Issue 11143 (5,312 chars): llama 1,815 tokens, gpt-oss 1,920 (2.9 chars/token: logs and code tokenize
+  worse than prose's ~4). Different tokenizer + chat template = different count for the same text.
+  gpt-oss adds a hidden template: a 10-word question cost 111 prompt tokens vs llama's 45.
+- Output is billed, not just shown: gpt-oss 193 tokens for a 31-word answer (~150 hidden reasoning
+  tokens); llama 57 for 38 words. At a reference $4/$20 per 1M: $0.008-0.012 per issue, ~$3 per 300.
+- Both answers name the real bug (numeric first expression treated as docstring -> `"PYTEST_DONT_REWRITE"
+  in docstring` TypeError) from the stack trace at the END of the issue. bge-small only saw the first 512
+  tokens (a `pip list`), which is why 11143 was weak for dense. That's the case for query rewriting.
+
+## Query rewriting with regexes (Week 6, Strategy 5a, `pinpoint.query`)
+
+- Tune issues: Python tracebacks in only 14% (pytest 1/11); backticks 44%, code blocks 52%. So the
+  extractor is mostly "code-looking identifiers" (snake_case, dotted, camelCase, --options, call()),
+  plus error names, .py paths, and traceback frames when present.
+- Mostly a negative result (n=11). Best: BM25 file raw+terms MRR .539 -> .550 (acc@5 .636 -> .727),
+  i.e. noise level. Terms-only queries hurt everywhere (BM25 fn .257 -> .047, dense file .617 -> .219):
+  the prose carries meaning ("fixture scope", "skip at module level") that a term list throws away,
+  and an embedder given a bag of identifiers isn't seeing a sentence anymore.
+- Many extracted terms are the REPORTER's code, not the repo's (test_all_even, GeoLocationTest,
+  MacBook). Filter: keep a term only if one of its tokens occurs in the snapshot's functions.
+  Helps dense (title+terms .395 -> .532) but changes nothing for BM25, because BM25 already ignores
+  words that no document contains (zero term frequency everywhere). Dense has no such filter: every
+  input token moves the vector.
+- The fix is often not IN the issue: 5221 says only `--fixtures`; the gold is `_showfixtures_main`.
+  Extraction can't add words that aren't there; an LLM can infer them. That is the case for 5b.
+- 11143's trace ends in `is_rewrite_disabled` but the fix is one frame up in `run`: failing frame
+  != fixed function. Callers of the top hit matter (Strategy 6).
+
+## Query rewriting with an LLM (Week 6, Strategy 5b, `pinpoint.llm_query`)
+
+- Structured output = a forced tool call with a JSON schema (summary, functions, files, terms).
+  Databricks endpoints speak the OpenAI chat format; the typed SDK `query()` has no `tools`, so call
+  `w.api_client.do("POST", "/serving-endpoints/<name>/invocations", body=...)`. Parse + validate the
+  arguments, retry once. Llama 3.3 70B obeys; gpt-oss-120b ignored the forced tool and wrote markdown.
+- The tool schema is hidden prompt: a one-line question with the tool = 702 prompt tokens.
+- 11 issues: 15,550 prompt + 904 completion tokens (~1,400 in / 80 out per issue; ~$0.007 at $4/$20).
+  Cached in data/gold/llm_queries.parquet keyed by model + prompt hash: reruns free and identical.
+- Mixed result. Helps: BM25 file MRR .539 -> .583 (acc@5 .636 -> .818, best BM25 file row); dense
+  function .194 -> .231 (acc@1 .100 -> .200). Hurts: BM25 function .257 -> .212 (raw+llm), dense file
+  .617 -> .576. Raw dense file (.617) and BM25 function (.257) stay the best rows at their level.
+- The model rarely knows the right names: exact gold name only for 7373, and that issue already
+  names them. Near misses: 5221 guessed `show_fixtures` / `_show_fixtures` for `_showfixtures_main`;
+  whole-identifier BM25 can't match those, split tokens could. Low evidence of memorised pytest fixes.
+- 5a vs 5b: inferring names helps more than extracting them, but neither beats the raw issue
+  everywhere. Rewriting is a per-retriever choice, not a global switch.

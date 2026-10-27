@@ -34,6 +34,7 @@ dev = [
 # Heavy or local-only: installed by `uv sync`, left out of the wheel. Cloud tasks that need
 # them list them in their own environment (databricks.yml).
 local = [
+    "databricks-sdk>=0.155.0",
     "mlflow>=3",
     "sentence-transformers>=6.2.0",
     "torch>=2.14.1",

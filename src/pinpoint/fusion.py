@@ -7,7 +7,7 @@ Databricks' HYBRID fused dense with its own keyword engine, which was weak on th
     uv run python -m pinpoint.fusion             # pytest-dev/pytest tune issues
 """
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import pandas as pd
 from rank_bm25 import BM25Okapi
@@ -44,12 +44,15 @@ def rank_functions_bm25(fns: pd.DataFrame, query: str, mode: str = "whole") -> l
     return fns.function_id.values[order].tolist()
 
 
-def side_rankings(issues: pd.DataFrame, candidates: pd.DataFrame) -> dict[str, dict[str, list[str]]]:
-    """Per issue, the four single-retriever rankings that get fused."""
+def side_rankings(issues: pd.DataFrame, candidates: pd.DataFrame,
+                  queries: Mapping[str, str] | None = None) -> dict[str, dict[str, list[str]]]:
+    """Per issue, the four single-retriever rankings that get fused.
+    `queries` maps instance_id -> query text (default: the raw problem statement)."""
     embedder = Embedder()
     out = {"bm25_file": {}, "dense_file": {}, "bm25_fn": {}, "dense_fn": {}}
     for _, issue in issues.iterrows():
-        iid, text = issue["instance_id"], issue["problem_statement"]
+        iid = issue["instance_id"]
+        text = queries[iid] if queries else issue["problem_statement"]
         fns = candidates[candidates.instance_id == iid]
         scores = dense.search(embedder.encode(fns.source.tolist()), embedder.encode_query(text))
         out["bm25_file"][iid] = bm25.rank_files(get_snapshot(issue), text, "whole")

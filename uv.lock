@@ -1273,6 +1273,7 @@ dev = [
     { name = "pytest" },
 ]
 local = [
+    { name = "databricks-sdk" },
     { name = "mlflow" },
     { name = "sentence-transformers" },
     { name = "torch", version = "2.14.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
@@ -1296,6 +1297,7 @@ dev = [
     { name = "pytest", specifier = ">=9.1.1" },
 ]
 local = [
+    { name = "databricks-sdk", specifier = ">=0.155.0" },
     { name = "mlflow", specifier = ">=3" },
     { name = "sentence-transformers", specifier = ">=6.2.0" },
     { name = "torch", specifier = ">=2.14.1", index = "https://download.pytorch.org/whl/cpu" },
