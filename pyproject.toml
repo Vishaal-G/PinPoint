@@ -7,19 +7,20 @@ authors = [
     { name = "Vishaal", email = "vishaaltor@gmail.com" }
 ]
 requires-python = ">=3.12,<3.13"
+# What the wheel needs: kept small so Databricks jobs don't replace their preinstalled pandas/pyarrow.
 dependencies = [
-    "datasets>=5.1.0",
     "gitpython>=3.2.0",
-    "mlflow>=3",
-    "pandas>=3.0.6",
-    "pyarrow>=21",
+    "pandas>=2.2",
+    "pyarrow>=14",
     "rank-bm25>=0.2.2",
-    "sentence-transformers>=6.2.0",
-    "torch>=2.14.1",
     "tree-sitter>=0.26.0",
     "tree-sitter-python>=0.25.0",
     "unidiff>=1.0.1",
 ]
+
+[project.scripts]
+ingest = "pinpoint.jobs:ingest"
+build-tables = "pinpoint.jobs:build_tables"
 
 [build-system]
 requires = ["uv_build>=0.12.24,<0.13.0"]
@@ -30,6 +31,16 @@ dev = [
     "ipykernel>=7.4.0",
     "pytest>=9.1.1",
 ]
+# Heavy or local-only: installed by `uv sync`, left out of the wheel. Cloud tasks that need
+# them list them in their own environment (databricks.yml).
+local = [
+    "mlflow>=3",
+    "sentence-transformers>=6.2.0",
+    "torch>=2.14.1",
+]
+
+[tool.uv]
+default-groups = ["dev", "local"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

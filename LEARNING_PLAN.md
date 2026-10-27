@@ -90,7 +90,7 @@ Spark SQL, Jobs, AI Search (Delta Sync index, hybrid queries, filters).
       repos is blocked or slow there, keep parsing local and upload results. That's a fine design.
 - [x] Create an AI Search endpoint + Delta Sync index on gold functions. Query it from a notebook.
 - [x] Strategy 4: hybrid search. Over-fetch, then filter to the issue's snapshot via membership.
-- [ ] Turn your pipeline into a Databricks Job.
+- [x] Turn your pipeline into a Databricks Job.
 
 **Milestone:** row 4, plus confirmation that the cloud setup reproduces your local row 3.
 

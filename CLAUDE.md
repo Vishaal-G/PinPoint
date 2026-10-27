@@ -40,7 +40,7 @@ is in `LEARNING_PLAN.md`.
 ## Progress
 
 - **Current week:** Week 5 (Move to Databricks).
-- **Current task:** Week 5 last box: turn the pipeline into a Databricks Job.
+- **Current task:** Week 5 wrap-up (check compute quotas), then Week 6.
 - **Done so far:**
   - Week 0 setup (by Claude). Repo: github.com/Vishaal-G/PinPoint (private), branch `main`.
   - `data.py` (user): reads SWE-bench Lite from `hf://datasets/SWE-bench/SWE-bench_Lite/...`
@@ -102,12 +102,15 @@ is in `LEARNING_PLAN.md`.
     ANN returned 2,097 of 5,843 silently. Databricks HYBRID file MRR .357 (weak keyword side).
   - `fusion.py` (Claude, 2026-10-26, `uv run python -m pinpoint.fusion`): RRF of BM25 + dense. File RRF MRR .561
     (acc@5 .727). BM25 over function source = best function row (acc@1 .200, MRR .257). Rows in NOTES.md.
+  - Databricks Job (Claude, 2026-10-26): `databricks.yml` bundle + `jobs.py` (`ingest`, `build-tables` entry points),
+    serverless wheel tasks. CLI at ~/.local/bin, profile `pinpoint`. Run reproduces local tables exactly, idempotent.
+    Wheel deps slimmed; heavy libs in uv group `local`. Next job tasks: embed (new hashes only), sync_index, evaluate.
   - Starting slice: `pytest-dev/pytest` (17 issues). Example: pytest-dev__pytest-11143 -> rewrite.py {678}.
 - **Blockers / open questions:** TWO COPIES. `~/PinPoint` was made on 2026-10-22 (pushed cbc253c), but all later
   work (Weeks 4-5) happened in `/mnt/c/Users/Visha/Desktop/PinPoint`, which is the current one. `~/PinPoint` only has an
   uncommitted early `embed.py` draft (superseded by `dense_functions.py`). User to decide: delete it, or re-clone
   into `~/` and move `data/` there (worktree add ~12s/issue on `/mnt/c`, ~1h for 300). Optional: drop unused `datasets` dependency.
-- **Next step:** Databricks Job (Week 5 last box). Open: fn_mrr for Databricks rows (query `pinpoint_gold.strategy4_results`).
+- **Next step:** Week 6 (LLM toy, query rewriting). Before scaling to 300: add embed/sync/evaluate job tasks. Open: check Free Edition compute quotas (last Week 5 box).
   Known: issues over 512 tokens get truncated (10/17 pytest); Week 6 query rewriting.
   Week 6 note: down-weight ambiguous callee names.
 
@@ -123,7 +126,8 @@ is in `LEARNING_PLAN.md`.
 
 ## Session log
 
-- 2026-10-26: Week 5: Spark/Delta toy, parquet -> UC Delta, vector index, Strategy 4 (Databricks hybrid + our RRF).
+- 2026-10-26: Week 5: Spark/Delta toy, parquet -> UC Delta, vector index, Strategy 4 (Databricks hybrid + our RRF),
+  Databricks CLI + Asset Bundle job (idempotent, reproduces local tables). Only the quota check is left in Week 5.
 - 2026-10-24: Strategy 2 (fixed chunks) and Strategy 3 (function chunks, 65% hash savings, header variant). Week 4 done.
 - 2026-10-22: Synced Progress. Locked 200/100 split, re-scored BM25 on pytest tune (MRR .539). Week 3 done.
 - 2026-10-21: Built metrics.py, tokenizer, BM25 file baseline, MLflow tracking. BM25 whole-token MRR .491 on pytest.

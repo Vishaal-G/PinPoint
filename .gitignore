@@ -15,3 +15,4 @@ scratch/
 .pytest_cache/
 mlruns/
 .env
+.databricks/

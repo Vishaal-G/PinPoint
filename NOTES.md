@@ -23,11 +23,11 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 | 3h | Strategy 3 + `path\nqualname` header on each function | file | .364 | .727 | .818 | .556 | 11 |
 | 3hf | same | function | .100 | .500 | .600 | .241 | 10 |
 | 3c | Strategy 3 in Databricks: ANN index (asked 5843, got 2097), post-filter to snapshot | file | .545 | .636 | .727 | .617 | 11 |
-| 3cf | same | function | .100 | .300 | .500 | — | 10 |
+| 3cf | same (.191 vs local .194: ANN returned only 2,097 rows) | function | .100 | .300 | .500 | .191 | 10 |
 | 4k | Databricks FULL_TEXT (whole issue text over function source), n=200, post-filter | file | .091 | .273 | .364 | .215 | 11 |
-| 4kf | same | function | .000 | .200 | .300 | — | 10 |
+| 4kf | same | function | .000 | .200 | .300 | .114 | 10 |
 | 4 | Databricks HYBRID (ANN + FULL_TEXT, rank-fused), n=200, post-filter | file | .091 | .727 | .727 | .357 | 11 |
-| 4f | same | function | .000 | .400 | .500 | — | 10 |
+| 4f | same | function | .000 | .400 | .500 | .153 | 10 |
 | 1f | BM25 whole tokens over each function's source (silver), per snapshot | function | .200 | .300 | .300 | .257 | 10 |
 | 4L | Our hybrid: RRF(BM25 whole file, dense Strategy 3 file), k=60, equal weights | file | .455 | .727 | .727 | .561 | 11 |
 | 4Lf | Our hybrid: RRF(BM25 function, dense function), k=60, equal weights | function | .100 | .300 | .400 | .199 | 10 |
@@ -171,3 +171,20 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 - Sensitivity (not logged as rows; 11 issues is too few to pick from): file dense x2 weight
   .545/.727/.818/.626 (best file numbers), k=10 ~ k=60. Function dense x2 drops to MRR .116.
   Revisit weights on the full 200-issue tune set.
+
+## Databricks Job via Asset Bundle (Week 5)
+
+- `databricks.yml` + `src/pinpoint/jobs.py`: job `[dev vishaaltor] pinpoint-pipeline`, tasks
+  `ingest -> build_tables`, python_wheel_task on serverless (environment_version 3), wheel built by
+  `uv build`. `databricks bundle deploy` then `databricks bundle run pinpoint_pipeline`.
+- Bundle variables (catalog, schema_prefix) = deploy time; job parameter `repo` = run time.
+- Wheel deps kept minimal; mlflow/torch/sentence-transformers moved to a uv `local` group so the job
+  doesn't pull 2 GB of CUDA torch or clash with the runtime's packages.
+- Idempotent writes: functions/edges `MERGE ... WHEN NOT MATCHED THEN INSERT` on hash; membership and
+  ground_truth `replaceWhere instance_id IN (...)`. First run: 14,312 functions built, 0 new; 54,502
+  edges, 0 new: cloud parse == local parse. After a failed run + a good run, tables still
+  14,312 / 54,502 / 73,389 / 17. Retries are safe because of this.
+- Gotcha: the job env upgraded pandas to 3 (pyarrow-backed strings); after a concat they're chunked
+  and pyspark's createDataFrame fails ("Cannot convert ChunkedArray to Array"). Fix: cast non-numeric
+  columns to object first (`jobs.plain_dtypes`).
+- CLI: installed to ~/.local/bin (no sudo); OAuth U2M login `databricks auth login --profile pinpoint`.
