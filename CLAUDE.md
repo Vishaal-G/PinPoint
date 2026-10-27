@@ -39,8 +39,8 @@ is in `LEARNING_PLAN.md`.
 
 ## Progress
 
-- **Current week:** Week 5 (Move to Databricks).
-- **Current task:** Week 6 Strategy 7 (cross-encoder reranking).
+- **Current week:** Week 7 (Agent baseline). Weeks 0-4 and 6 done; Week 5 done except the quota check.
+- **Current task:** Week 7 concept lesson (tool-calling agent loop), then tools grep/open_file.
 - **Done so far:**
   - Week 0 setup (by Claude). Repo: github.com/Vishaal-G/PinPoint (private), branch `main`.
   - `data.py` (user): reads SWE-bench Lite from `hf://datasets/SWE-bench/SWE-bench_Lite/...`
@@ -112,14 +112,20 @@ is in `LEARNING_PLAN.md`.
   - `graph.py` (Strategy 6, 2026-10-26): name-only call graph, 1/m ambiguity weights, rank-based expansion.
     Dense fn seeds MRR .194 -> .344 (best fn row; 3 up 2 down, n=10); BM25 seeds collapse (.038): neighbours
     overtake correct exact-match hits. Callers carry the gain. `cap=True` safe but small.
+  - `rerank.py` (Strategy 7, 2026-10-26): cross-encoder on dense top-50, scores cached. bge-reranker-base hurts
+    (MRR .194 -> .101; web-trained, bare code is out of domain); with path + qualname header .234. Week 6 done.
+  - Best rows so far (pytest tune): file = dense Strategy 3 MRR .617 (BM25 + LLM query acc@5 .818);
+    function = dense + call-graph expansion MRR .344 (acc@1 .3). All results in NOTES.md table.
   - Starting slice: `pytest-dev/pytest` (17 issues). Example: pytest-dev__pytest-11143 -> rewrite.py {678}.
 - **Blockers / open questions:** TWO COPIES. `~/PinPoint` was made on 2026-10-22 (pushed cbc253c), but all later
   work (Weeks 4-5) happened in `/mnt/c/Users/Visha/Desktop/PinPoint`, which is the current one. `~/PinPoint` only has an
   uncommitted early `embed.py` draft (superseded by `dense_functions.py`). User to decide: delete it, or re-clone
-  into `~/` and move `data/` there (worktree add ~12s/issue on `/mnt/c`, ~1h for 300). Optional: drop unused `datasets` dependency.
-- **Next step:** Strategy 7 cross-encoder reranking, then Week 7 agent baseline. Before scaling to 300: add embed/sync/evaluate job tasks. Open: check Free Edition compute quotas (last Week 5 box).
-  Known: issues over 512 tokens get truncated (10/17 pytest); Week 6 query rewriting.
-  Week 6 note: down-weight ambiguous callee names.
+  into `~/` and move `data/` there (worktree add ~12s/issue on `/mnt/c`, ~1h for 300).
+  Week 5 quota check still open (user looks it up in the Databricks UI). All results are n=10/11 (pytest only):
+  re-check the winners on the 200-issue tune set before trusting them.
+- **Next step:** Week 7 agent baseline on Llama 3.3 70B (Databricks endpoint; it handles forced tool calls,
+  gpt-oss doesn't). Before scaling to 300: add embed/sync/evaluate job tasks.
+  Optional later: fine-tune a cross-encoder on (issue, gold function) pairs; LLM listwise reranking.
 
 ## Decisions made
 
@@ -137,6 +143,8 @@ is in `LEARNING_PLAN.md`.
 
 - 2026-10-26: Week 5: Spark/Delta toy, parquet -> UC Delta, vector index, Strategy 4 (Databricks hybrid + our RRF),
   Databricks CLI + Asset Bundle job (idempotent, reproduces local tables). Only the quota check is left in Week 5.
+  Week 6 done: LLM toy on free Databricks endpoints, Strategy 5 (regex/LLM rewriting, mixed), 6 (call graph,
+  dense fn MRR .344, best), 7 (cross-encoder, hurts unless names shown). Next: Week 7 agent.
 - 2026-10-24: Strategy 2 (fixed chunks) and Strategy 3 (function chunks, 65% hash savings, header variant). Week 4 done.
 - 2026-10-22: Synced Progress. Locked 200/100 split, re-scored BM25 on pytest tune (MRR .539). Week 3 done.
 - 2026-10-21: Built metrics.py, tokenizer, BM25 file baseline, MLflow tracking. BM25 whole-token MRR .491 on pytest.

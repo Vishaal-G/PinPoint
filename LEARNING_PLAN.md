@@ -104,7 +104,7 @@ Spark SQL, Jobs, AI Search (Delta Sync index, hybrid queries, filters).
       LLM cleanup. Measure each separately: you'll know which part actually helped.
 - [x] Strategy 6: call-graph expansion. Add callers/callees of the top hits from `silver/edges`.
       Test how many neighbours to add and how to score them.
-- [ ] Strategy 7: cross-encoder reranking on the top ~50.
+- [x] Strategy 7: cross-encoder reranking on the top ~50.
 
 ## Week 7 — Agent baseline
 

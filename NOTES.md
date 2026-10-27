@@ -37,6 +37,8 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 | 5bf | Dense function, query = title + LLM summary + guessed names (title+llm) | function | .200 | .300 | .300 | .231 | 10 |
 | 6 | Dense function (Strategy 3) + call-graph expansion: top-5 seeds, callers+callees, 1/m ambiguity weight, alpha=1 | function | .300 | .400 | .400 | .344 | 10 |
 | 6b | same expansion on BM25 function seeds | function | .000 | .000 | .200 | .038 | 10 |
+| 7 | Dense fn top-50 reranked by bge-reranker-base, query = title + LLM summary | function | .000 | .200 | .300 | .101 | 10 |
+| 7h | same, document = path + qualname + source | function | .100 | .400 | .500 | .234 | 10 |
 
 ## Evaluation (Week 3)
 
@@ -263,3 +265,20 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
   topical hit. Ambiguity weighting barely mattered here (.344 vs .334 unweighted).
 - cap=True (neighbour lands right after its seed, added after seeing results, so sensitivity only):
   safe but small: dense .230, BM25 .214. Leapfrogging is where the gain is, and where the risk is.
+
+## Cross-encoder reranking (Week 6, Strategy 7, `pinpoint.rerank`)
+
+- bge-reranker-base on CPU: ~0.3 s per pair (50 long pairs 14.6 s); MiniLM-L6 6x faster. Both cap the
+  PAIR at 512 tokens, so the raw 1,800-token issue would crowd out the code: pre-registered query =
+  title + LLM summary (5b). Scores cached by sha256(model, query, doc).
+- Ceiling = first-stage recall@50: dense .7, dense+graph .6, BM25 .5. A reranker can't beat it.
+- Negative result. Pre-registered (dense top-50, title+llm query, plain source): MRR .194 -> .101.
+  5221 1 -> 10, 5495 7 -> 47, 7373 3 -> 12; 8906 8 -> 2, 7220 49 -> 24. Raw query .098, MiniLM .063,
+  on BM25 or dense+graph stages ~.12: every variant hurts, except...
+- ...header (path + qualname above the source): .234 > .194 (acc@5 .3 -> .4). The names give a
+  web-trained model something language-like to match ("showfixtures", "rewrite"); bare code is out of
+  its training distribution (MS MARCO: questions vs web passages).
+- Why rerankers fail here: domain shift + the top 50 are all on-topic functions from the same
+  subsystem (hard negatives), which is exactly where an untuned reranker is weakest.
+- Fixes for later: fine-tune a cross-encoder on (issue, gold function) pairs from tune repos only;
+  or an LLM as a listwise reranker (Week 7 territory). Off-the-shelf rerankers are not free wins.
