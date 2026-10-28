@@ -434,3 +434,15 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 - Lesson: the graph signal is real but needs judgment. Blind re-ranking promoted every neighbour; the agent
   asks for neighbours of the one function it suspects and reads them before ranking.
 - Gotcha: function ids are not unique per snapshot (sympy @dispatch overloads share a qualname); seeds dedupe.
+
+## Live path (`live.py`, 2026-10-28): any repo at any commit -> ranked functions
+
+- checkout (clone once into data/live/repos, fetch, detach) -> index (tree-sitter, same hashes as silver)
+  -> embed only unseen bodies (saves every 2,000, resumable) -> dense top-10 -> H3 agent. Invented ids dropped,
+  empty answer falls back to dense.
+- Parity: on 3 SWE-bench snapshots the live dense top-10 equals the cloud's eval_rankings top-10, same order.
+- First post-cutoff issue (pytest #15052, filed 2026-09, fixed in PR #15053; run at the fix's parent commit):
+  cold index of pytest HEAD-ish = 2,127 functions, 1,539 new bodies, ~60 s embedding; 99 s total, 8 s LLM.
+  **Miss**: gold compat.py::getlocation (shared helper with the off-by-one); agent ranked the
+  --fixtures-per-test code that calls it (trigger vs bug, like 7220), stopping at 7 of 15 steps.
+- Gotcha: a fresh GitHub clone can die with "RPC failed; curl 56 Connection reset"; a retry worked.
