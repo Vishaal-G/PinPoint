@@ -99,3 +99,23 @@ def test_labelled_grep_and_open_file(nested):
 
 def test_option_definitions(nested):
     assert tools.option_definitions(nested, "running with --flag and --missing fails") == ["--flag: m.py:9 [m.py::opts]"]
+
+
+def test_call_graph_lists_callers_and_callees(snap):
+    (snap / "pkg" / "other.py").write_text("def gamma():\n    beta()\n    print(1)\n")
+    out = tools.call_graph(snap, "pkg/mod.py::beta").splitlines()
+    assert out == ["pkg/mod.py::beta (lines 5-6)",
+                   "called by 1 functions (calls to 'beta', matched by name):",
+                   "  pkg/other.py::gamma (lines 1-3)",
+                   "calls:",
+                   "  alpha -> pkg/mod.py::alpha (lines 1-2)"]
+    assert "1 more names not defined" in tools.call_graph(snap, "pkg/other.py::gamma")   # print
+    assert "test_alpha" not in tools.call_graph(snap, "pkg/mod.py::alpha")               # tests are excluded
+
+
+def test_call_graph_flags_ambiguous_names_and_unknown_ids(snap):
+    (snap / "pkg" / "other.py").write_text("def alpha():\n    pass\n")
+    out = tools.call_graph(snap, "pkg/mod.py::alpha")
+    assert "2 functions are named 'alpha'" in out
+    assert tools.call_graph(snap, "pkg/mod.py::zeta").startswith("error: no function")
+    assert tools.run_tool(snap, "call_graph", '{"function_id": "pkg/mod.py::beta"}').startswith("pkg/mod.py::beta")

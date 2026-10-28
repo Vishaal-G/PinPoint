@@ -26,7 +26,6 @@ from pinpoint.repos import is_source_file
 STRATEGIES = {"dense_file": "file", "dense_fn": "fn", "graph_fn": "fn", "bm25_fn": "fn", "rrf_fn": "fn",
               "graph_file": "file", "bm25_file": "file"}
 METRICS = ("acc@1", "acc@5", "acc@10", "mrr")
-SEEDS_K = 10
 RANKINGS_K = 50
 
 
@@ -81,15 +80,6 @@ def rankings_table(ranked: dict[str, dict[str, list[str]]], k: int = RANKINGS_K)
     rows = [{"strategy": name, "instance_id": iid, "rank": r, "item": item}
             for name, per_issue in ranked.items() for iid, ranking in per_issue.items()
             for r, item in enumerate(ranking[:k], 1)]
-    return pd.DataFrame(rows)
-
-
-def seeds_table(ranked: dict[str, dict[str, list[str]]], candidates: pd.DataFrame, k: int = SEEDS_K) -> pd.DataFrame:
-    """The top-k of Strategy 6 (graph_fn) with line ranges: what the agent (Strategy H) is seeded with."""
-    lines = candidates.set_index(["instance_id", "function_id"])[["start_line", "end_line"]]
-    rows = [{"instance_id": iid, "rank": r, "function_id": f,
-             "start_line": int(lines.loc[(iid, f), "start_line"]), "end_line": int(lines.loc[(iid, f), "end_line"])}
-            for iid, ranking in ranked["graph_fn"].items() for r, f in enumerate(ranking[:k], 1)]
     return pd.DataFrame(rows)
 
 

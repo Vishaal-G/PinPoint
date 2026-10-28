@@ -3,7 +3,7 @@
     ingest        SWE-bench Lite from Hugging Face -> <catalog>.<prefix>_bronze.issues
     build-tables  a slice's issues: clone + parse -> silver functions/edges/membership, gold ground_truth
     embed         candidate bodies not embedded yet -> silver.embeddings_<model> (Databricks endpoint)
-    evaluate      non-LLM strategies on the slice -> gold.eval_results, gold.agent_seeds, MLflow runs
+    evaluate      non-LLM strategies on the slice -> gold.eval_results, gold.eval_rankings, MLflow runs
     sync-index    Delta Sync vector index over the embeddings table (for the API, not for scoring)
 
 A slice is `--slice repo --repo <name>` (one repo), `--slice recheck` (52 stratified tune issues)
@@ -208,7 +208,7 @@ def evaluate(argv: list[str] | None = None) -> None:
     _register_udfs(spark)
     issues = select_issues(spark.read.table(table_name(args, "bronze", "issues")).toPandas(), args)
     embedder = EndpointEmbedder(args.model, cache_dir=Path(tempfile.mkdtemp()), client=_workspace())
-    ranked, seeds = {name: {} for name in ev.STRATEGIES}, []
+    ranked = {name: {} for name in ev.STRATEGIES}
     for _, issue in issues.iterrows():
         iid = issue["instance_id"]
         cands = spark.sql(f"""
@@ -223,7 +223,6 @@ def evaluate(argv: list[str] | None = None) -> None:
                           {iid: embedder.encode_query(issue["problem_statement"])}, edges)
         for name in ranked:
             ranked[name].update(one[name])
-        seeds.append(ev.seeds_table(one, cands))
 
     gt = spark.read.table(table_name(args, "gold", "ground_truth")).toPandas()
     table = ev.results_table(ranked, gt[gt.instance_id.isin(issues.instance_id)])
@@ -231,7 +230,6 @@ def evaluate(argv: list[str] | None = None) -> None:
     table = table.assign(slice=slice_label(args), model=args.model, run_at=run_at)
     print(table[table.repo == "all"].to_string(index=False))
     spark.createDataFrame(plain_dtypes(table)).write.mode("append").saveAsTable(table_name(args, "gold", "eval_results"))
-    _replace_issues(spark, pd.concat(seeds, ignore_index=True), table_name(args, "gold", "agent_seeds"))
     long = ev.rankings_table(ranked).assign(model=args.model, run_at=run_at)
     _replace_issues(spark, long, table_name(args, "gold", "eval_rankings"))
 

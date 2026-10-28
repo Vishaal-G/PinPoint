@@ -6,12 +6,14 @@ model can read what went wrong and try again instead of the loop crashing.
 
     grep(pattern)                 regex over the snapshot's source files -> "path:line: text" rows
     open_file(path, start, end)   numbered lines of one file, at most MAX_LINES per call
+    call_graph(function_id)       callers and callees of one function (graph=True, scale-up fix 4)
 
 With labels=True (Week 7 fix 1) every result also names the function each line sits in, as the
 `path::qualname` id the agent must submit; without it the agent sees lines but not function names.
 """
 import json
 import re
+from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
 
@@ -37,16 +39,25 @@ OPEN_FILE = {"type": "function", "function": {
                    "properties": {"path": {"type": "string", "description": "Path relative to the repository root."},
                                   "start": {"type": "integer"}, "end": {"type": "integer"}}}}}
 TOOLS = [GREP, OPEN_FILE]
+CALL_GRAPH = {"type": "function", "function": {
+    "name": "call_graph",
+    "description": "List the functions that call a function and the functions it calls, matched by name "
+                   "(like Pinpoint's call graph): use it to follow a bug from where it shows up to its cause. "
+                   f"At most {MAX_MATCHES} callers.",
+    "parameters": {"type": "object", "additionalProperties": False, "required": ["function_id"],
+                   "properties": {"function_id": {"type": "string",
+                                                  "description": "Id 'path::qualname', e.g. 'src/pkg/mod.py::MyClass.run'."}}}}}
 LABEL_NOTE = (" Each line is labelled with the id 'path::qualname' of the innermost function containing it; "
               "use these ids when you submit.")
 
 
-def tool_schemas(labels: bool = False) -> list[dict]:
+def tool_schemas(labels: bool = False, graph: bool = False) -> list[dict]:
     """The tool schemas, with descriptions that mention the function labels when they are on."""
+    tools = TOOLS + [CALL_GRAPH] if graph else TOOLS
     if not labels:
-        return TOOLS
-    out = json.loads(json.dumps(TOOLS))
-    for t in out:
+        return tools
+    out = json.loads(json.dumps(tools))
+    for t in out[:len(TOOLS)]:  # call_graph always speaks in ids, so it needs no note
         t["function"]["description"] += LABEL_NOTE
     return out
 
@@ -67,6 +78,51 @@ def enclosing(snapshot: Path, rel: str, line: int) -> tuple[str, int, int] | Non
         return None
     start, end, qualname = max(containing)
     return function_id(rel, qualname), start, end
+
+
+@lru_cache(maxsize=2)
+def _graph(root: str) -> tuple[dict, dict, dict]:
+    """One snapshot's name-only call graph, parsed on first use (a django snapshot takes seconds):
+    id -> (start, end, calls), short name -> ids defined with it, short name -> ids that call it."""
+    by_id, defined, callers = {}, defaultdict(list), defaultdict(list)
+    for rel in source_files(Path(root)):
+        for f in parse_file((Path(root) / rel).read_bytes(), rel):
+            fid = function_id(rel, f.qualname)
+            by_id[fid] = (f.start_line, f.end_line, f.calls)
+            defined[f.qualname.split(".")[-1]].append(fid)
+            for name in set(f.calls):
+                callers[name].append(fid)
+    return by_id, defined, callers
+
+
+def call_graph(snapshot: Path, fid: str) -> str:
+    by_id, defined, callers = _graph(str(snapshot.resolve()))
+    if fid not in by_id:
+        return f"error: no function {fid!r}; ids look like 'path::qualname' (grep and open_file show them)"
+    start, end, calls = by_id[fid]
+    name = fid.split("::", 1)[1].split(".")[-1]
+    same = len(defined[name])
+    rows = [f"{fid} (lines {start}-{end})"]
+    by = sorted(set(callers[name]) - {fid})
+    note = f"; {same} functions are named {name!r}, so some of these may call another one" if same > 1 else ""
+    rows.append(f"called by {len(by)} functions (calls to {name!r}, matched by name{note}):")
+    rows += [f"  {c} (lines {by_id[c][0]}-{by_id[c][1]})" for c in by[:MAX_MATCHES]]
+    if len(by) > MAX_MATCHES:
+        rows.append(f"  ... {len(by) - MAX_MATCHES} more not shown")
+    rows.append("calls:")
+    outside = 0
+    for callee in sorted(set(calls)):
+        targets = [t for t in defined.get(callee, []) if t != fid]
+        if not targets:
+            outside += 1
+        elif len(targets) == 1:
+            rows.append(f"  {callee} -> {targets[0]} (lines {by_id[targets[0]][0]}-{by_id[targets[0]][1]})")
+        else:
+            shown = ", ".join(targets[:3]) + (", ..." if len(targets) > 3 else "")
+            rows.append(f"  {callee} -> one of {len(targets)} functions with that name: {shown}")
+    if outside:
+        rows.append(f"  ({outside} more names not defined in the repository, e.g. builtins or libraries)")
+    return "\n".join(rows)
 
 
 def _inside(snapshot: Path, path: str) -> Path | None:
@@ -132,7 +188,9 @@ def run_tool(snapshot: Path, name: str, raw_args: str, labels: bool = False) -> 
             return grep(snapshot, str(args["pattern"]), labels)
         if name == "open_file":
             return open_file(snapshot, str(args["path"]), int(args["start"]), int(args["end"]), labels)
-        return f"error: unknown tool {name!r}; available: grep, open_file"
+        if name == "call_graph":
+            return call_graph(snapshot, str(args["function_id"]))
+        return f"error: unknown tool {name!r}; available: grep, open_file, call_graph"
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
         return f"error: bad arguments for {name}: {e!r}"
 

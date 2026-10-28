@@ -16,10 +16,15 @@ model + prompt version, so reruns cost nothing and are stable.
     uv run python -m pinpoint.agent --slice=recheck --seeds   # 52-issue slice; seeds from gold.agent_seeds (cloud)
     uv run python -m pinpoint.agent <instance_id> [--seeds]   # one issue live, traced in MLflow
 
-Add --fixes=labels,prompt,options (any subset) for the Week 7 failure-analysis fixes:
+Add --fixes=labels,prompt,options,graph (any subset) for the Week 7 failure-analysis fixes:
     labels   tools label every line with its enclosing function id (tools.py)
     prompt   advice from the failures: fix is often in the caller, the trigger isn't the bug, submit 10
     options  where each --option the issue mentions is defined, appended to the issue
+    graph    a call_graph tool (callers / callees of a function): the graph as the agent's information,
+             since re-ranking with it blindly hurt across repos (NOTES.md, recheck)
+
+On --slice=recheck the seeds are the cloud's dense top-10 (bge-large); elsewhere the old dense + graph
+top-10 (bge-small). The seed source is part of the cache key.
 """
 import hashlib
 import json
@@ -67,7 +72,7 @@ PROMPT_VERSION_H = hashlib.sha256((PROMPT_VERSION + SEEDS).encode()).hexdigest()
 
 
 # Week 7 fixes, from the failure analysis in NOTES.md. Each one is a switch, so they can be scored one by one.
-FIXES = ("labels", "prompt", "options")
+FIXES = ("labels", "prompt", "options", "graph")
 PROMPT_FIX = """
 
 Advice from past mistakes:
@@ -83,18 +88,23 @@ Command-line options mentioned in the issue are defined here:
 {options}"""
 
 
-def prompt_version(seeded: bool = False, fixes: frozenset = frozenset()) -> str:
-    """Cache key for a prompt variant. No fixes -> the original A/H versions, so old runs stay valid."""
+def prompt_version(seeded: bool = False, fixes: frozenset = frozenset(), seed_source: str = "graph") -> str:
+    """Cache key for a prompt variant. No fixes, graph seeds -> the original A/H versions, so old runs stay valid."""
     base = PROMPT_VERSION_H if seeded else PROMPT_VERSION
+    if seeded and seed_source != "graph":
+        base = hashlib.sha256((base + "seeds:" + seed_source).encode()).hexdigest()[:12]
     if not fixes:
         return base
     extra = json.dumps(sorted(fixes)) + PROMPT_FIX + OPTIONS + json.dumps(tool_schemas(True), sort_keys=True)
+    if "graph" in fixes:
+        extra += json.dumps(tool_schemas(True, graph=True), sort_keys=True)
     return hashlib.sha256((base + extra).encode()).hexdigest()[:12]
 
 
-def tag(seeded: bool, fixes: frozenset) -> str:
-    """Run name, e.g. agentH+labels+prompt."""
-    return "+".join(["agentH" if seeded else "agent", *sorted(fixes)])
+def tag(seeded: bool, fixes: frozenset, seed_source: str = "graph") -> str:
+    """Run name, e.g. agentH+labels+prompt, or agentHdense+... for dense seeds."""
+    head = ("agentH" + ("" if seed_source == "graph" else seed_source)) if seeded else "agent"
+    return "+".join([head, *sorted(fixes)])
 
 
 def seed_text(seeds: list[tuple[str, int, int]]) -> str:
@@ -157,7 +167,7 @@ def run_agent(call_llm, snapshot: Path, repo: str, issue_text: str, max_steps: i
     options = option_definitions(snapshot, issue_text) if "options" in fixes else []
     if options:
         user += OPTIONS.format(options="\n".join(options))
-    tools = tool_schemas(labels) + [SUBMIT]
+    tools = tool_schemas(labels, graph="graph" in fixes) + [SUBMIT]
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     steps, ranking, stop = [], [], "max_steps"
     with _span(trace, "agent", "AGENT", inputs={"repo": repo, "issue": issue_text}) as root:
@@ -236,7 +246,8 @@ def file_ranking(functions: list[str]) -> list[str]:
     return list(dict.fromkeys(f.split("::")[0] for f in functions))
 
 
-def agent_runs(issues, model: str = MODEL, seeds: dict | None = None, fixes: frozenset = frozenset()) -> "pd.DataFrame":
+def agent_runs(issues, model: str = MODEL, seeds: dict | None = None, fixes: frozenset = frozenset(),
+               seed_source: str = "graph") -> "pd.DataFrame":
     """One cached row per issue: ranking, stop reason, steps, tokens, seconds, transcript (JSON).
     `seeds` maps instance_id -> seed rows (Strategy H, cached under its own prompt version).
     Only issues missing from the cache call the endpoint."""
@@ -245,7 +256,7 @@ def agent_runs(issues, model: str = MODEL, seeds: dict | None = None, fixes: fro
     from pinpoint.repos import get_snapshot
 
     stored = pd.read_parquet(CACHE) if CACHE.exists() else pd.DataFrame(columns=["instance_id", "model", "prompt_version"])
-    version = prompt_version(bool(seeds), fixes)
+    version = prompt_version(bool(seeds), fixes, seed_source)
     cache = stored[(stored.model == model) & (stored.prompt_version == version)]
     todo = issues[~issues.instance_id.isin(cache.instance_id)]
     if len(todo):
@@ -377,11 +388,12 @@ if __name__ == "__main__":
     if seeded and recheck:
         from pinpoint.cloud import agent_seeds
 
-        # The cloud evaluate task's dense (bge-large) + graph top-10: the same seeds its rows score.
-        seeds = agent_seeds(issues.instance_id)
+        # The cloud evaluate task's dense top-10 (bge-large): graph expansion lost on this slice (NOTES.md).
+        seeds = agent_seeds(issues.instance_id, strategy="dense_fn")
     else:
         seeds = pinpoint_seeds(issues) if seeded else None
-    runs = agent_runs(issues, seeds=seeds, fixes=fixes)
+    seed_source = "dense" if recheck else "graph"
+    runs = agent_runs(issues, seeds=seeds, fixes=fixes, seed_source=seed_source)
     fn = {r.instance_id: list(r.ranking) for r in runs.itertuples()}
     rankings = {"fn": fn, "file": {i: file_ranking(f) for i, f in fn.items()}}
 
@@ -392,7 +404,7 @@ if __name__ == "__main__":
     valid = sum(x in real for x in ids) / max(len(ids), 1)
 
     cost = (runs.prompt_tokens * PRICE_PER_M[0] + runs.completion_tokens * PRICE_PER_M[1]) / 1e6
-    name, version = tag(seeded, fixes), prompt_version(seeded, fixes)
+    name, version = tag(seeded, fixes, seed_source), prompt_version(seeded, fixes, seed_source)
     print(f"\n{name}: {MODEL}, prompt {version}, n={len(runs)}")
     print(f"  stop: {runs.stop.value_counts().to_dict()}; steps mean {runs.n_steps.mean():.1f}, "
           f"tool calls mean {runs.n_calls.mean():.1f}; ranked ids {len(ids)}, real functions {valid:.0%}")
@@ -403,11 +415,11 @@ if __name__ == "__main__":
         seed_ids = {i: [f for f, _, _ in s] for i, s in seeds.items()}
         from_seeds = sum(f in seed_ids[i] for i, f in ids) / max(len(ids), 1)
         r = evaluate(seed_ids, gold["fn"])
-        print(f"  seeds alone ({'bge-large, cloud' if recheck else 'bge-small'} dense + graph top-{TOP_K}): fn " + " ".join(f"{m} {r[m]:.3f}" for m in ("acc@1", "acc@5", "acc@10", "mrr")))
+        print(f"  seeds alone ({'bge-large dense, cloud' if recheck else 'bge-small dense + graph'} top-{TOP_K}): fn " + " ".join(f"{m} {r[m]:.3f}" for m in ("acc@1", "acc@5", "acc@10", "mrr")))
         print(f"  submitted ids taken from the seed list: {from_seeds:.0%}")
     params = {"strategy": "agent+seeds" if seeded else "agent", "model": MODEL, "prompt_version": version,
               "max_steps": MAX_STEPS, "fixes": ",".join(sorted(fixes)) or "none",
-              "slice": slice_name, "seeds": ("cloud bge-large" if recheck else "local bge-small") if seeded else "none"}
+              "slice": slice_name, "seeds": ("cloud bge-large dense" if recheck else "local bge-small dense+graph") if seeded else "none"}
     for level in ("file", "fn"):
         r = evaluate(rankings[level], gold[level])
         print(f"  {level:>4}: n={r['n']} " + " ".join(f"{m} {r[m]:.3f}" for m in ("acc@1", "acc@5", "acc@10", "mrr")))
