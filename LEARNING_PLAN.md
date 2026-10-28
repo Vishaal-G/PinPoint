@@ -110,12 +110,12 @@ Spark SQL, Jobs, AI Search (Delta Sync index, hybrid queries, filters).
 
 **Learn:** tool calling (writing the agent loop yourself, no framework), MLflow tracing.
 
-- [ ] Tools: `grep(pattern)` and `open_file(path, start, end)`, sandboxed to the snapshot dir.
-- [ ] Write the loop: send messages → model asks for a tool → run it → send result → repeat, with a
+- [x] Tools: `grep(pattern)` and `open_file(path, start, end)`, sandboxed to the snapshot dir.
+- [x] Write the loop: send messages → model asks for a tool → run it → send result → repeat, with a
       step limit. Ask for a final ranked list of functions as structured output.
-- [ ] Strategy A on the tune set: accuracy, latency, $/query. Strategy H: seed the agent with
+- [x] Strategy A on the tune set: accuracy, latency, $/query. Strategy H: seed the agent with
       Pinpoint's top-10.
-- [ ] Add MLflow tracing to the retrieval steps; inspect 5 failures and write down why they failed.
+- [x] Add MLflow tracing to the retrieval steps; inspect 5 failures and write down why they failed.
 
 ## Week 8 — Product: API and bot
 

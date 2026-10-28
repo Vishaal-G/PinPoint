@@ -39,8 +39,8 @@ is in `LEARNING_PLAN.md`.
 
 ## Progress
 
-- **Current week:** Week 7 (Agent baseline). Weeks 0-4 and 6 done; Week 5 done except the quota check.
-- **Current task:** Week 7 concept lesson (tool-calling agent loop), then tools grep/open_file.
+- **Current week:** Week 7 done (Agent baseline). Weeks 0-4, 6, 7 done; Week 5 done except the quota check.
+- **Current task:** scale-up prep: embed / sync_index / evaluate job tasks, then re-check winners on 200 tune.
 - **Done so far:**
   - Week 0 setup (by Claude). Repo: github.com/Vishaal-G/PinPoint (private), branch `main`.
   - `data.py` (user): reads SWE-bench Lite from `hf://datasets/SWE-bench/SWE-bench_Lite/...`
@@ -114,17 +114,22 @@ is in `LEARNING_PLAN.md`.
     overtake correct exact-match hits. Callers carry the gain. `cap=True` safe but small.
   - `rerank.py` (Strategy 7, 2026-10-26): cross-encoder on dense top-50, scores cached. bge-reranker-base hurts
     (MRR .194 -> .101; web-trained, bare code is out of domain); with path + qualname header .234. Week 6 done.
-  - Best rows so far (pytest tune): file = dense Strategy 3 MRR .617 (BM25 + LLM query acc@5 .818);
-    function = dense + call-graph expansion MRR .344 (acc@1 .3). All results in NOTES.md table.
+  - Week 7 (Claude, 2026-10-27): `tools.py` (grep / open_file sandboxed to the snapshot, capped output, errors
+    as text; `labels=True` names each line's enclosing function; `option_definitions`), `agent.py` (hand-written
+    tool-calling loop on Llama 3.3 70B, forced submit_ranking on the last step, runs cached in
+    `data/gold/agent_runs.parquet`, MLflow tracing via `run_agent(trace=True)`, `--seeds` = Strategy H,
+    `--fixes=labels,prompt,options`). A: file MRR .727, fn .200, $0.10/query. H (seeded with dense+graph
+    top-10): fn .450. H2 (all fixes): fn .650 (.600 honest, one T=0 noise flip), file .773, $0.076/query.
+    Labels and options helped by construction; prompt advice did nothing. Failure table in NOTES.md.
+  - Best rows so far (pytest tune): file = H2 agent MRR .773 (dense Strategy 3 .617 is the best non-LLM);
+    function = H2 agent MRR .650 (dense + call graph .344 non-LLM). All results in NOTES.md table.
   - Starting slice: `pytest-dev/pytest` (17 issues). Example: pytest-dev__pytest-11143 -> rewrite.py {678}.
-- **Blockers / open questions:** TWO COPIES. `~/PinPoint` was made on 2026-10-22 (pushed cbc253c), but all later
-  work (Weeks 4-5) happened in `/mnt/c/Users/Visha/Desktop/PinPoint`, which is the current one. `~/PinPoint` only has an
-  uncommitted early `embed.py` draft (superseded by `dense_functions.py`). User to decide: delete it, or re-clone
-  into `~/` and move `data/` there (worktree add ~12s/issue on `/mnt/c`, ~1h for 300).
+- **Blockers / open questions:** Repo lives at `~/PinPoint` (re-cloned 2026-10-27; data/, scratch/, mlruns/
+  copied, worktree + MLflow paths rewritten). Old copies: `~/PinPoint.old`, `/mnt/c/.../Desktop/PinPoint` (delete when happy).
   Week 5 quota check still open (user looks it up in the Databricks UI). All results are n=10/11 (pytest only):
   re-check the winners on the 200-issue tune set before trusting them.
-- **Next step:** Week 7 agent baseline on Llama 3.3 70B (Databricks endpoint; it handles forced tool calls,
-  gpt-oss doesn't). Before scaling to 300: add embed/sync/evaluate job tasks.
+- **Next step:** embed/sync/evaluate job tasks, then re-check the winners (dense+graph, H2) beyond pytest.
+  Then Week 8 (FastAPI + bot). Unsolved agent failures: 7220 (trigger vs bug), 9359 (wrong subsystem).
   Optional later: fine-tune a cross-encoder on (issue, gold function) pairs; LLM listwise reranking.
 
 ## Decisions made
@@ -141,6 +146,8 @@ is in `LEARNING_PLAN.md`.
 
 ## Session log
 
+- 2026-10-27: Week 7 done: agent tools + hand-written loop, Strategy A and H, MLflow tracing, 5-failure analysis,
+  3 fixes scored one at a time (labels + options help, prompt advice doesn't). H2 fn MRR .650. Next: job tasks.
 - 2026-10-26: Week 5: Spark/Delta toy, parquet -> UC Delta, vector index, Strategy 4 (Databricks hybrid + our RRF),
   Databricks CLI + Asset Bundle job (idempotent, reproduces local tables). Only the quota check is left in Week 5.
   Week 6 done: LLM toy on free Databricks endpoints, Strategy 5 (regex/LLM rewriting, mixed), 6 (call graph,

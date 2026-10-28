@@ -39,6 +39,18 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 | 6b | same expansion on BM25 function seeds | function | .000 | .000 | .200 | .038 | 10 |
 | 7 | Dense fn top-50 reranked by bge-reranker-base, query = title + LLM summary | function | .000 | .200 | .300 | .101 | 10 |
 | 7h | same, document = path + qualname + source | function | .100 | .400 | .500 | .234 | 10 |
+| A | Agent: Llama 3.3 70B, grep + open_file, 15-step cap, submit_ranking (file = order of submitted functions) | file | .727 | .727 | .727 | .727 | 11 |
+| Af | same agent, function level | function | .200 | .200 | .200 | .200 | 10 |
+| H | Agent seeded with Pinpoint top-10 (dense + graph, Strategy 6), same prompt otherwise | file | .636 | .727 | .727 | .682 | 11 |
+| Hf | same, function level | function | .300 | .600 | .600 | .450 | 10 |
+| H+l | H + tools label each line with its enclosing function id (fix 1) | file | .727 | .818 | .818 | .773 | 11 |
+| H+lf | same, function level | function | .400 | .600 | .600 | .500 | 10 |
+| H+lp | H + labels + prompt advice (caller not crash site, trigger not bug, submit 10) | file | .636 | .818 | .818 | .712 | 11 |
+| H+lpf | same, function level | function | .400 | .600 | .600 | .500 | 10 |
+| H2 | H + labels + prompt + definitions of --options the issue mentions (all 3 fixes) | file | .727 | .818 | .818 | .773 | 11 |
+| H2f | same, function level (.600 without the 11143 noise flip, see notes) | function | .600 | .700 | .700 | .650 | 10 |
+| A2 | A + all 3 fixes (no seeds) | file | .636 | .818 | .818 | .727 | 11 |
+| A2f | same, function level | function | .400 | .600 | .600 | .500 | 10 |
 
 ## Evaluation (Week 3)
 
@@ -282,3 +294,76 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
   subsystem (hard negatives), which is exactly where an untuned reranker is weakest.
 - Fixes for later: fine-tune a cross-encoder on (issue, gold function) pairs from tune repos only;
   or an LLM as a listwise reranker (Week 7 territory). Off-the-shelf rerankers are not free wins.
+
+## Agent tools (Week 7, `pinpoint.tools`)
+
+- Agent = LLM in a loop: model replies with a tool call (name + JSON args) instead of an answer, our
+  code runs it, appends the result as a `role: "tool"` message, calls the model again. Stops on a
+  final answer or the step limit. The model never runs anything; it only asks. The loop is ~30 lines.
+- No memory between calls: every request resends the whole history, so cost grows ~quadratically
+  with steps. Tool output size is the main cost lever -> caps (grep 50 rows, open_file 200 lines).
+- Tools return errors as text, never raise: the model reads "invalid regex" and retries.
+- Sandbox = resolve the path, then `is_relative_to(snapshot)`; catches `../`, absolute paths, symlinks.
+- grep searches the same source files the retrievers rank (tests/docs out), so the agent and
+  Pinpoint compete over the same candidate set.
+- Strategy A (prompt ea214022b16c, Llama 3.3 70B, 15-step cap, pytest tune n=11): all 11 submitted on
+  their own, mean 8.9 steps / 10.9 s / 24.6k prompt + 217 completion tokens ($0.10/query at $4/$20
+  reference: ~10x Strategy 5b, ~$30 per 300). **File acc@1 = MRR .727, best file row** (dense .617).
+  **Function MRR .200** (6116, 7373 at rank 1), below dense + graph .344.
+- Why fn is weak: it submits ~2 ids, not 10, so acc@1 = acc@10 (no recall tail). Only 60% of ids are
+  real functions: it names classes (`AssertionRewritingHook`, `Package`) and constants
+  (`DEFAULT_LOG_FORMAT`). Typical miss = right file, wrong method (11143 `is_rewrite_disabled` vs `run`,
+  5495 `assertrepr_compare` vs its helper `_compare_eq_sequence`). It stops at the first plausible hit.
+- Caveat: Llama has likely seen pytest's source in training (see 5b "NAMED"), so the file gain may be
+  partly memory. Check on other repos before trusting it.
+- Strategy H (prompt 47109164b8a8 = A + seed list of dense+graph top-10 with line ranges): **function
+  MRR .450, acc@5 .600, best function row** (seeds alone .333 / .400, A .200). File MRR .682 (A .727).
+  Cheaper than A: 5.7 steps, 6.9 s, 15.4k prompt tokens, $0.065/query. Real-function ids 60% -> 96%.
+- Seed rank -> agent rank: 5103 -/2 and 6116 -/1 (found outside the seeds), 7373 3/2, 5495 and 5692
+  1/1; one loss 11143 1/2 (put `is_rewrite_disabled` above `run` again). 62% of submitted ids come from
+  the seed list. 5227 submitted in 1 step without checking anything (rubber-stamping the seeds).
+- Lesson: retrieval gives recall + real names; the agent verifies and follows one edge further.
+  Seeding also cuts exploring, so it is better AND cheaper. n=10, one issue = .1 MRR: re-check at scale.
+- MLflow tracing (`run_agent(trace=True)`, on for `python -m pinpoint.agent <id> [--seeds]`): one trace per
+  issue = AGENT root -> RETRIEVER (seeds) -> CHAT_MODEL per step -> TOOL per call, tagged with
+  instance_id / strategy / prompt_version. A span = one timed unit of work with inputs, outputs and
+  attributes; parent links make the tree. Traces are written async: `flush_trace_async_logging()`
+  before reading one back. Batch runs are not traced (cached transcripts are the record).
+- Live traced 5221 (H): 9.5 s total, LLM calls ~9.4 s, all tools ~0.16 s: latency is ~98% the model.
+  One open_file returned 9,665 chars and the prompt jumped 2,087 -> 4,663 tokens, and every later step
+  pays for it again. Same issue/prompt/temperature 0 as the cached run, but different path (8 steps
+  vs 6) and ranking: endpoint LLMs are not deterministic at T=0, which is why runs are cached.
+
+### Week 7 failure analysis (Strategy H transcripts, cached runs; A compared)
+
+| issue | gold | what the agent did | failure type |
+|---|---|---|---|
+| 5221 | `python.py::_showfixtures_main` | grepped the reporter's words ("fixture scope", "pytest --fixtures" = help text), never the option's definition (`"--fixtures"` -> `showfixtures`). H: read 2 small windows, then submitted seeds 2-4 as-is. | vocabulary gap + anchoring on wrong seeds |
+| 7220 | `nodes.py::Node._repr_failure_py` | fixated on `chdir`, which the *reporter's* code calls, not the code that prints the path (relative to cwd). Also grepped `FSCollector._recurse` (qualnames aren't in source text). | symptom trigger mistaken for fix site |
+| 8906 | `python.py::Module._importtestmodule` (572-617) | found the exact message at python.py:611 and opened 600-620, *inside the gold function*, but submitted class names `Module` / `CollectError`. | right line, wrong id: can't map a line to its enclosing function |
+| 9359 | `_code/source.py::get_statement_startend2` | grepped "lineno" (capped at 50) and "python3.9", stopped after 6 of 15 steps. Never reasoned about the mechanism (statement line range, ast end_lineno), never opened `_code/source.py`. Seeds missed the file too. | shallow exploration, wrong subsystem |
+| 11143 | `rewrite.py::AssertionRewriter.run` | the TypeError is raised in `is_rewrite_disabled`, so it ranked that first. H had `run` at seed rank 1 and opened 650-700 (line 678, the fix line) and still demoted it. | crash site vs fix site (fix is in the caller) |
+
+- Cross-cutting: never uses the budget (5-8 of 15 steps), reads 10-20 line peepholes, submits 1-3 ids,
+  and has no way to see which function a line belongs to (8906, 11143). Same issues fail in A and H.
+- Fix ideas (A2/H2, one change at a time): (1) tools annotate every line with its enclosing
+  `path::qualname` (we have it in snapshot_membership) -> fixes 8906 by construction; (2) prompt: the
+  fix is often in the caller of the function that raises, rank callers too; submit 10 functions, not
+  classes; (3) list the repo's CLI options/config names up front (5221).
+
+### Week 7 fixes, scored one at a time (pytest tune, cumulative on H)
+
+- Fix 1, labels (`tools.enclosing`: innermost function per line, same rule as ground truth; grep rows get
+  `[path::qualname]`, open_file gets a `## id (lines a-b)` header at each function change): fn MRR
+  .450 -> .500, file .682 -> .773, real-function ids 96% -> 100%. 8906 not ranked -> 2 (as predicted from
+  its transcript), 7373 2 -> 1; one loss, 5103 2 -> not ranked. Cost unchanged ($0.065).
+- Fix 2, prompt advice: fn unchanged (.500), file down (.712), ids per issue 2 -> 4, +20% tokens. It did
+  NOT fix the cases it was written for (11143 still 2, 7220 still missed). Telling the model about a
+  mistake is weaker than changing what it can see.
+- Fix 3, options (only 5221 and 6116 mention a --option): 5221 not ranked -> 1 directly. fn .650.
+- **Noise:** for the 8 scored issues without --options, run 3's input was byte-identical to run 2's, yet
+  11143 moved 2 -> 1. So the honest attribution for fix 3 is .600, and one rank flip in ~8 issues per
+  rerun is the noise floor at T=0 (~.05 MRR here). Gains smaller than ~.1 on n=10 are not evidence.
+- A2 (no seeds, all fixes): fn .200 -> .500 (5103 found at 1, 8906 at 2, 11143 at 2), file .727 unchanged.
+  It ignored the --fixtures hint on 5221. Seeds + fixes (H2, .650 / .600 honest) is the best function row.
+- Still unsolved: 7220 (trigger vs bug) and 9359 (wrong subsystem): neither seeds nor tools reach them.
