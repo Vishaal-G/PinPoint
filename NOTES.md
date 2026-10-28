@@ -60,6 +60,12 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 | R1 | recheck: BM25 over function source, file = best function | file | .269 | .519 | .712 | .418 | 52 |
 | R1f | recheck: BM25 over function source | function | .078 | .275 | .353 | .174 | 51 |
 | R4f | recheck: RRF(BM25 fn, dense fn) | function | .039 | .373 | .471 | .162 | 51 |
+| RA2 | recheck: agent A2 (no seeds, labels + prompt + options) | file | .654 | .731 | .731 | .692 | 52 |
+| RA2f | same, function level | function | .451 | .569 | .569 | .510 | 51 |
+| RH2 | recheck: agent H2, seeded with dense top-10 (bge-large) | file | .731 | .788 | .788 | .760 | 52 |
+| RH2f | same, function level | function | .471 | .627 | .627 | .540 | 51 |
+| RH3 | recheck: H2 dense seeds + call_graph tool (fix 4) | file | .731 | .885 | .885 | .804 | 52 |
+| RH3f | same, function level | function | .529 | .725 | .745 | .614 | 51 |
 
 ## Evaluation (Week 3)
 
@@ -414,3 +420,17 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 - No variant beats dense alone (MRR .230): alpha .25 .204, k=1 cap .209, callers .207 (best acc@1 .137, +1 issue).
 - Decision: drop graph expansion as a re-ranker. Keep the call graph as information *for the agent*
   (a callers/callees tool), and seed the agent with dense top-10, not graph top-10 (agent_seeds is graph_fn today).
+
+## Agent beyond pytest (recheck slice, 2026-10-28)
+
+- The agent holds up across 12 repos, unlike the call graph: A2 fn MRR .510 (pytest-only A2f was .500),
+  4x dense acc@1 (.451 vs .118). Django is the weak repo (fn .25-.40) in every variant.
+- Seeds switched to dense top-10 (graph expansion lost on this slice). Seeds add a little: fn .510 -> .540,
+  file .692 -> .760, and fewer steps (8.4 -> 6.7) and tokens (36k -> 27k), so cheaper ($0.15 -> $0.11).
+- call_graph tool (the graph as information, not as a re-ranker): fn .540 -> .614, acc@5 .627 -> .725,
+  file .760 -> .804. Used in 34/52 issues (0.7 calls/issue). Per issue: 10 up, 4 down.
+  Of the 10 ups, 6 called the tool; 4 didn't (a different tool list changes the T=0 trajectory). Sign test
+  10 vs 4: p ~ .18, so promising, not proven. Same signal as Strategy 6's rare big wins, minus the flooding.
+- Lesson: the graph signal is real but needs judgment. Blind re-ranking promoted every neighbour; the agent
+  asks for neighbours of the one function it suspects and reads them before ranking.
+- Gotcha: function ids are not unique per snapshot (sympy @dispatch overloads share a qualname); seeds dedupe.

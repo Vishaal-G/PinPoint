@@ -39,14 +39,18 @@ def query(sql: str, client=None) -> pd.DataFrame:
 
 
 def agent_seeds(ids, strategy: str = "dense_fn", k: int = 10, client=None) -> dict[str, list[tuple[str, int, int]]]:
-    """A strategy's top-k from gold.eval_rankings (the job's evaluate task), as agent.pinpoint_seeds
-    returns them. Line ranges come from the local silver membership table (the agent runs locally)."""
+    """A strategy's top-k distinct ids from gold.eval_rankings (the job's evaluate task), as
+    agent.pinpoint_seeds returns them. Line ranges come from the local silver membership table (the
+    agent runs locally). An id can repeat (sympy's @dispatch overloads share one qualname): it keeps
+    its first rank and the first definition's lines."""
     in_list = ", ".join(f"'{i}'" for i in sorted(set(ids)))
     df = query(f"SELECT instance_id, rank, item AS function_id FROM {CATALOG}.{PREFIX}_gold.eval_rankings "
-               f"WHERE strategy = '{strategy}' AND rank <= {int(k)} AND instance_id IN ({in_list})", client)
+               f"WHERE strategy = '{strategy}' AND instance_id IN ({in_list})", client)
     df = df.astype({"rank": int}).sort_values(["instance_id", "rank"])
+    df = df.drop_duplicates(["instance_id", "function_id"]).groupby("instance_id").head(k)
     lines = pd.read_parquet("data/silver/snapshot_membership.parquet",
                             columns=["instance_id", "function_id", "start_line", "end_line"])
+    lines = lines.sort_values("start_line").drop_duplicates(["instance_id", "function_id"])
     df = df.merge(lines, on=["instance_id", "function_id"], how="left", validate="one_to_one")
     return {i: list(zip(g.function_id, g.start_line.astype(int), g.end_line.astype(int)))
             for i, g in df.groupby("instance_id")}
