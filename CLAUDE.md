@@ -40,7 +40,7 @@ is in `LEARNING_PLAN.md`.
 ## Progress
 
 - **Current week:** Week 7 done (Agent baseline). Weeks 0-4, 6, 7 done; Week 5 done except the quota check.
-- **Current task:** why the call graph fails beyond pytest; then full 200 tune run, then H2 agent beyond pytest.
+- **Current task:** full 200-issue tune job (running 2026-10-28); then non-LLM rows on 200, then Week 8.
 - **Done so far:**
   - Week 0 setup (by Claude). Repo: github.com/Vishaal-G/PinPoint (private), branch `main`.
   - `data.py` (user): reads SWE-bench Lite from `hf://datasets/SWE-bench/SWE-bench_Lite/...`
@@ -128,14 +128,19 @@ is in `LEARNING_PLAN.md`.
     via the SQL warehouse. split.csv moved into the package so the wheel ships it. Recheck run succeeded.
   - Recheck (52 issues, 12 repos): dense wins: file MRR .587, fn .232. Dense + call graph fn .147 (last;
     was .344 on pytest). BM25 fn .174, RRF .162. Rows R* in NOTES.md.
-  - Best rows so far (pytest tune): file = H2 agent MRR .773 (dense Strategy 3 .617 is the best non-LLM);
-    function = H2 agent MRR .650 (dense + call graph .344 non-LLM). All results in NOTES.md table.
+  - Graph diagnosis (2026-10-28, `scratch/recheck_graph.py`, needs new `gold.eval_rankings` = top-50 per
+    strategy per issue): expansion floods the top 10 (6 of 10 slots) and evicts correct #1s; no variant beats
+    dense. Dropped as a re-ranker. Instead: `call_graph` tool for the agent (`--fixes=...,graph`), agent seeds =
+    dense top-10 from eval_rankings (`cloud.agent_seeds`, seed source in the cache key). agent_seeds table removed.
+  - Best rows (recheck, 52 issues, 12 repos): file = H3 agent (dense seeds + labels/prompt/options/graph)
+    MRR .804; function = H3 MRR .614 / acc@1 .529 (10 up 4 down vs H2, p~.18). Non-LLM best: dense file .587,
+    fn .232. A2 (no seeds) fn .510. Old pytest-only bests (H2 fn .650) superseded. All rows in NOTES.md.
   - Starting slice: `pytest-dev/pytest` (17 issues). Example: pytest-dev__pytest-11143 -> rewrite.py {678}.
 - **Blockers / open questions:** Repo lives at `~/PinPoint` (re-cloned 2026-10-27; data/, scratch/, mlruns/
   copied, worktree + MLflow paths rewritten). Old copies: `~/PinPoint.old`, `/mnt/c/.../Desktop/PinPoint` (delete when happy).
   Week 5 quota check still open (user looks it up in the Databricks UI). All results are n=10/11 (pytest only):
   re-check the winners on the 200-issue tune set before trusting them.
-- **Next step:** diagnose graph_fn on the recheck slice, run `--slice tune`, re-check H2 beyond pytest.
+- **Next step:** read the 200-tune eval_results; decide whether to run the agent (H3) on all 200; Week 8.
   Then Week 8 (FastAPI + bot). Unsolved agent failures: 7220 (trigger vs bug), 9359 (wrong subsystem).
   Optional later: fine-tune a cross-encoder on (issue, gold function) pairs; LLM listwise reranking.
 
@@ -154,7 +159,8 @@ is in `LEARNING_PLAN.md`.
 ## Session log
 
 - 2026-10-28: Committed scale-up job (embed / evaluate / sync-index, recheck slice). Recheck: dense wins, call graph
-  falls to last (fn .147 vs .344 on pytest). Next: diagnose graph.
+  falls to last (fn .147 vs .344 on pytest). Diagnosed (flooding), dropped as re-ranker, added as agent tool:
+  H3 agent fn MRR .614 across 12 repos. Tune-200 job started.
 - 2026-10-27: Week 7 done: agent tools + hand-written loop, Strategy A and H, MLflow tracing, 5-failure analysis,
   3 fixes scored one at a time (labels + options help, prompt advice doesn't). H2 fn MRR .650. Next: job tasks.
 - 2026-10-26: Week 5: Spark/Delta toy, parquet -> UC Delta, vector index, Strategy 4 (Databricks hybrid + our RRF),
