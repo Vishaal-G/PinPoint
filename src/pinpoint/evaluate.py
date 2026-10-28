@@ -27,6 +27,7 @@ STRATEGIES = {"dense_file": "file", "dense_fn": "fn", "graph_fn": "fn", "bm25_fn
               "graph_file": "file", "bm25_file": "file"}
 METRICS = ("acc@1", "acc@5", "acc@10", "mrr")
 SEEDS_K = 10
+RANKINGS_K = 50
 
 
 def candidates_from(membership: pd.DataFrame, functions: pd.DataFrame) -> pd.DataFrame:
@@ -71,6 +72,15 @@ def results_table(ranked: dict[str, dict[str, list[str]]], ground_truth: pd.Data
             r = score({i: ranked[name][i] for i in members}, {i: gt.loc[i, col] for i in members})
             rows.append({"strategy": name, "level": level, "repo": repo, "n": r["n"],
                          **{m: round(r[m], 3) for m in METRICS}})
+    return pd.DataFrame(rows)
+
+
+def rankings_table(ranked: dict[str, dict[str, list[str]]], k: int = RANKINGS_K) -> pd.DataFrame:
+    """Every strategy's top-k per issue, long format: the table to open when asking *why* a strategy
+    missed on a slice too big to rerun locally."""
+    rows = [{"strategy": name, "instance_id": iid, "rank": r, "item": item}
+            for name, per_issue in ranked.items() for iid, ranking in per_issue.items()
+            for r, item in enumerate(ranking[:k], 1)]
     return pd.DataFrame(rows)
 
 

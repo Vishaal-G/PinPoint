@@ -143,6 +143,17 @@ Spark SQL, Jobs, AI Search (Delta Sync index, hybrid queries, filters).
 - [ ] 60-second demo video, LinkedIn post, resume bullets with real numbers.
 - [ ] Optional: offer the bot to a small open-source project (with maintainer permission).
 
+## Week 11 (optional, after shipping) — Port to LangChain / LangGraph
+
+**Learn:** LangChain retrievers, `EnsembleRetriever`, LangGraph state, nodes, conditional edges, checkpointing.
+
+- [ ] Retrieval in LangChain: wrap our embeddings + BM25 as retrievers, fuse with `EnsembleRetriever`.
+      Done = reproduces our dense / BM25 / RRF rows on the same tune issues (explain any gap).
+- [ ] Agent in LangGraph: LLM node, tool node, conditional edge on submit_ranking, forced submit at the
+      step limit. Done = matches H2 numbers within T=0 noise.
+- [ ] Write-up: what the frameworks saved, what we had to fight (function chunks, hash cache, snapshot
+      filter), and which version the bot should run.
+
 ---
 
 ## Library checklist (tick when you could explain it to a friend)

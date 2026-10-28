@@ -398,3 +398,19 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
   (fn .344 on pytest with bge-small), comes **last** across repos (fn .147). Overfit to one small slice.
 - BM25 fn (.174) and RRF (.162) also lose to dense alone. RRF with a weaker partner pulls dense down.
 - Lesson: n=10 on one repo picked the wrong winner. Always recheck on a stratified slice before trusting.
+
+## Why the call graph loses on the recheck slice (`scratch/recheck_graph.py`, 2026-10-28)
+
+- Method: cloud per-issue rankings (new `gold.eval_rankings`, top-50 per strategy) + local call graph,
+  replay `graph.expand` on the cloud dense_fn ranking. Replay is approximate (dense tail past 50 is cut,
+  so neighbours lose their base score: MAIN .175 here vs .147 in the cloud); compare rows within the replay.
+- **Flooding:** on average 6 of the top 10 are graph neighbours that dense didn't put there. The top-5 seeds
+  have a median of 14 unambiguous (weight 1) neighbours; scikit-learn-10508 has 282 (gold 13 -> 291).
+- **It evicts correct #1s:** dense's #1 survives in only 34% of issues. flask-4045 1 -> 6, flask-5063 1 -> 11,
+  sympy-19254 1 -> 14. Any weight-1 neighbour of seed s scores base + 1/(60+rank s) > seed's own score.
+- **Not a big-repo problem:** pytest itself, with bge-large seeds, is 3 gained / 4 lost. The old pytest win
+  (.194 -> .344) came with bge-small seeds and n=10: a property of those seeds plus noise, not of pytest.
+- Real gains exist but are rare (sympy-16988 30 -> 1, pytest-5495 15 -> 4): 8 gained, 24 lost of 51.
+- No variant beats dense alone (MRR .230): alpha .25 .204, k=1 cap .209, callers .207 (best acc@1 .137, +1 issue).
+- Decision: drop graph expansion as a re-ranker. Keep the call graph as information *for the agent*
+  (a callers/callees tool), and seed the agent with dense top-10, not graph top-10 (agent_seeds is graph_fn today).

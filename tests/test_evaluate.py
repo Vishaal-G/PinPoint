@@ -30,5 +30,8 @@ def test_rankings_scores_and_seeds():
     assert ranked["graph_fn"]["i"][:2] == ["b.py::fix", "a.py::caller"]  # the caller of the top hit stays close
     table = ev.results_table(ranked, gt).set_index(["strategy", "repo"])
     assert table.loc[("dense_fn", "all"), "mrr"] == 0.5 and table.loc[("dense_file", "o/r"), "acc@1"] == 0.0
+    long = ev.rankings_table(ranked, k=2)
+    assert long[long.strategy == "dense_fn"][["rank", "item"]].values.tolist() == [[1, "b.py::fix"], [2, "a.py::caller"]]
+    assert set(long.strategy) == set(ev.STRATEGIES)
     seeds = ev.seeds_table(ranked, cands, k=2)
     assert seeds[["rank", "function_id", "start_line"]].values.tolist() == [[1, "b.py::fix", 1], [2, "a.py::caller", 5]]

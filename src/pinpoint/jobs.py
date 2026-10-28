@@ -201,6 +201,7 @@ def evaluate(argv: list[str] | None = None) -> None:
 
     from pinpoint import evaluate as ev
     from pinpoint.embed import EndpointEmbedder
+    from pinpoint.tracking import per_issue
 
     args = parse_args(argv)
     spark = _spark()
@@ -231,6 +232,8 @@ def evaluate(argv: list[str] | None = None) -> None:
     print(table[table.repo == "all"].to_string(index=False))
     spark.createDataFrame(plain_dtypes(table)).write.mode("append").saveAsTable(table_name(args, "gold", "eval_results"))
     _replace_issues(spark, pd.concat(seeds, ignore_index=True), table_name(args, "gold", "agent_seeds"))
+    long = ev.rankings_table(ranked).assign(model=args.model, run_at=run_at)
+    _replace_issues(spark, long, table_name(args, "gold", "eval_rankings"))
 
     me = _workspace().current_user.me().user_name
     mlflow.set_tracking_uri("databricks")
@@ -243,6 +246,9 @@ def evaluate(argv: list[str] | None = None) -> None:
                                "n": int(overall.n)})
             mlflow.log_metrics({m.replace("@", "_at_"): float(overall[m]) for m in ev.METRICS})
             mlflow.log_text(rows.to_csv(index=False), "per_repo.csv")
+            col = "gold_files" if level == "file" else "gold_functions"
+            gold = {i: g for i, g in zip(gt.instance_id, gt[col]) if i in ranked[name]}
+            mlflow.log_text(per_issue(ranked[name], gold).to_csv(index=False), "per_issue.csv")
 
 
 def sync_index(argv: list[str] | None = None) -> None:
