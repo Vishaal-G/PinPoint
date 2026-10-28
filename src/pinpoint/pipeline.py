@@ -1,7 +1,11 @@
-"""Build the silver and gold tables for one repo's issues.
+"""Build the silver and gold tables for one repo's issues, or for a slice across repos.
 
     uv run python -m pinpoint.pipeline                      # pytest-dev/pytest
     uv run python -m pinpoint.pipeline django/django        # another repo
+    uv run python -m pinpoint.pipeline --slice=recheck      # the 52-issue stratified slice (split.recheck_ids)
+
+New rows are merged into the existing parquet files, with the same rules as the Databricks job:
+hash-keyed tables keep one row per hash, per-issue tables replace exactly the issues just built.
 """
 import sys
 from pathlib import Path
@@ -63,18 +67,46 @@ def build_tables(issues: pd.DataFrame) -> dict[str, pd.DataFrame]:
     }
 
 
+PATHS = {"functions": SILVER / "functions.parquet", "edges": SILVER / "edges.parquet",
+         "snapshot_membership": SILVER / "snapshot_membership.parquet", "ground_truth": GOLD / "ground_truth.parquet"}
+
+
+def merge_tables(old: dict[str, pd.DataFrame], new: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """Add `new` to `old`: hash-keyed tables gain only unseen hashes (a known hash = identical
+    content), per-issue tables drop the rebuilt issues' old rows first. Rebuilding is idempotent."""
+    out = {}
+    for name in ("functions", "edges"):
+        known = set(old[name].hash) if name in old else set()
+        fresh = new[name][~new[name].hash.isin(known)]
+        out[name] = pd.concat([old[name], fresh], ignore_index=True) if name in old else fresh
+    for name in ("snapshot_membership", "ground_truth"):
+        if name not in old:
+            out[name] = new[name]
+            continue
+        kept = old[name][~old[name].instance_id.isin(set(new[name].instance_id))]
+        out[name] = pd.concat([kept, new[name]], ignore_index=True)
+    return out
+
+
 def save_tables(tables: dict[str, pd.DataFrame]) -> None:
+    """Merge into the parquet files already on disk (see merge_tables)."""
     SILVER.mkdir(parents=True, exist_ok=True)
     GOLD.mkdir(parents=True, exist_ok=True)
-    tables["functions"].to_parquet(SILVER / "functions.parquet", index=False)
-    tables["edges"].to_parquet(SILVER / "edges.parquet", index=False)
-    tables["snapshot_membership"].to_parquet(SILVER / "snapshot_membership.parquet", index=False)
-    tables["ground_truth"].to_parquet(GOLD / "ground_truth.parquet", index=False)
+    old = {name: pd.read_parquet(path) for name, path in PATHS.items() if path.exists()}
+    for name, df in merge_tables(old, tables).items():
+        df.to_parquet(PATHS[name], index=False)
 
 
 if __name__ == "__main__":
-    repo = sys.argv[1] if len(sys.argv) > 1 else "pytest-dev/pytest"
-    tables = build_tables(load_issues(repo))
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    if "--slice=recheck" in sys.argv:
+        from pinpoint.split import recheck_ids
+
+        issues = load_issues()
+        issues = issues[issues.instance_id.isin(recheck_ids())]
+    else:
+        issues = load_issues(args[0] if args else "pytest-dev/pytest")
+    tables = build_tables(issues)
     save_tables(tables)
     gt = tables["ground_truth"]
     print(f"\n{gt['has_function'].sum()}/{len(gt)} issues have >=1 gold function")

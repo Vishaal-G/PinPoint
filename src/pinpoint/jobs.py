@@ -1,7 +1,13 @@
 """Entry points for the Databricks job (databricks.yml). Each runs as one task on serverless.
 
     ingest        SWE-bench Lite from Hugging Face -> <catalog>.<prefix>_bronze.issues
-    build-tables  one repo's issues: clone + parse -> silver functions/edges/membership, gold ground_truth
+    build-tables  a slice's issues: clone + parse -> silver functions/edges/membership, gold ground_truth
+    embed         candidate bodies not embedded yet -> silver.embeddings_<model> (Databricks endpoint)
+    evaluate      non-LLM strategies on the slice -> gold.eval_results, gold.agent_seeds, MLflow runs
+    sync-index    Delta Sync vector index over the embeddings table (for the API, not for scoring)
+
+A slice is `--slice repo --repo <name>` (one repo), `--slice recheck` (52 stratified tune issues)
+or `--slice tune` (all 200). Held-out is never selectable here.
 
 Every task is idempotent, so a retry or a second run gives the same tables:
   - content-addressed tables (functions, edges; key = body hash) only INSERT hashes they don't have,
@@ -10,10 +16,13 @@ Every task is idempotent, so a retry or a second run gives the same tables:
 import argparse
 import os
 import tempfile
+import time
+from pathlib import Path
 
 import pandas as pd
 
 from pinpoint import pipeline
+from pinpoint.embed import ENDPOINT_MODEL
 
 # The file data.HF_URL points at, over plain https: pandas reads it without huggingface_hub.
 HF_HTTPS_URL = "https://huggingface.co/datasets/SWE-bench/SWE-bench_Lite/resolve/main/data/test-00000-of-00001.parquet"
@@ -24,7 +33,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--catalog", default="workspace")
     parser.add_argument("--schema-prefix", default="pinpoint")
     parser.add_argument("--repo", default="pytest-dev/pytest")
+    parser.add_argument("--slice", default="repo", choices=["repo", "recheck", "tune"])
+    parser.add_argument("--model", default=ENDPOINT_MODEL)
+    parser.add_argument("--vs-endpoint", default="pinpoint")
     return parser.parse_args(argv)
+
+
+def select_issues(issues: pd.DataFrame, args: argparse.Namespace) -> pd.DataFrame:
+    """The slice's rows of the 300 issues. Held-out issues are never in a slice."""
+    from pinpoint.split import recheck_ids, tune_ids
+
+    if args.slice == "repo":
+        keep = issues.repo == args.repo  # all of the repo's issues, as build-tables always did
+    else:
+        keep = issues.instance_id.isin(recheck_ids() if args.slice == "recheck" else tune_ids())
+    return issues[keep].reset_index(drop=True)
+
+
+def slice_label(args: argparse.Namespace) -> str:
+    return args.repo if args.slice == "repo" else args.slice
+
+
+def embeddings_table(args: argparse.Namespace) -> str:
+    """e.g. workspace.pinpoint_silver.embeddings_databricks_bge_large_en"""
+    return table_name(args, "silver", "embeddings_" + args.model.replace("-", "_").replace("/", "_"))
 
 
 def table_name(args: argparse.Namespace, layer: str, name: str) -> str:
@@ -49,15 +81,16 @@ def plain_dtypes(pdf: pd.DataFrame) -> pd.DataFrame:
     return pdf.astype({c: object for c, t in pdf.dtypes.items() if not keep(t)})
 
 
-def _insert_new(spark, pdf: pd.DataFrame, table: str, key: str) -> None:
+def _insert_new(spark, pdf: pd.DataFrame, table: str, key: str, schema: str | None = None) -> None:
     """Insert rows whose `key` the table doesn't have yet. For content-addressed rows a known
-    key means identical content, so there is nothing to update."""
+    key means identical content, so there is nothing to update. `schema` (a DDL string) pins
+    column types that inference would get wrong, e.g. array<float> instead of array<double>."""
     pdf = plain_dtypes(pdf)
     if not spark.catalog.tableExists(table):
-        spark.createDataFrame(pdf).write.saveAsTable(table)
+        spark.createDataFrame(pdf, schema).write.saveAsTable(table)
         print(f"{table}: created with {len(pdf)} rows")
         return
-    spark.createDataFrame(pdf).createOrReplaceTempView("incoming")
+    spark.createDataFrame(pdf, schema).createOrReplaceTempView("incoming")
     result = spark.sql(f"""
         MERGE INTO {table} AS t USING incoming AS s ON t.{key} = s.{key}
         WHEN NOT MATCHED THEN INSERT *
@@ -90,9 +123,8 @@ def build_tables(argv: list[str] | None = None) -> None:
     spark = _spark()
     for layer in ("silver", "gold"):
         spark.sql(f"CREATE SCHEMA IF NOT EXISTS {args.catalog}.{args.schema_prefix}_{layer}")
-    issues = (spark.read.table(table_name(args, "bronze", "issues"))
-                   .filter(f"repo = '{args.repo}'").toPandas())
-    print(f"{args.repo}: {len(issues)} issues")
+    issues = select_issues(spark.read.table(table_name(args, "bronze", "issues")).toPandas(), args)
+    print(f"{slice_label(args)}: {len(issues)} issues in {issues.repo.nunique()} repos")
 
     # repos.py clones into relative data/ paths: give them the task's local disk, not a volume
     # (git worktrees need a real filesystem, and clones are cheap to rebuild).
@@ -103,3 +135,134 @@ def build_tables(argv: list[str] | None = None) -> None:
     _insert_new(spark, tables["edges"], table_name(args, "silver", "edges"), key="hash")
     _replace_issues(spark, tables["snapshot_membership"], table_name(args, "silver", "snapshot_membership"))
     _replace_issues(spark, tables["ground_truth"], table_name(args, "gold", "ground_truth"))
+
+
+def _candidate_sql(args: argparse.Namespace, ids) -> str:
+    """Membership rows of these issues that are search candidates (source files only)."""
+    return f"""SELECT m.* FROM {table_name(args, "silver", "snapshot_membership")} m
+               WHERE m.instance_id IN ({in_list(ids)}) AND is_source_file(m.path)"""
+
+
+def _register_udfs(spark) -> None:
+    from pyspark.sql.types import BooleanType
+
+    from pinpoint.repos import is_source_file
+
+    spark.udf.register("is_source_file", is_source_file, BooleanType())
+
+
+def _workspace():
+    from databricks.sdk import WorkspaceClient  # preinstalled on serverless; auth comes from the task
+
+    return WorkspaceClient()
+
+
+EMBED_CHUNK = 1600  # bodies per MERGE: a crash loses at most one chunk (~70 s of endpoint calls)
+
+
+def embed(argv: list[str] | None = None) -> None:
+    """Embed every candidate body of the slice that the embeddings table doesn't have yet.
+    Re-running only embeds what is missing, so a failed run resumes where it stopped."""
+    from pinpoint.embed import EndpointEmbedder
+
+    args = parse_args(argv)
+    spark = _spark()
+    _register_udfs(spark)
+    issues = select_issues(spark.read.table(table_name(args, "bronze", "issues")).toPandas(), args)
+    table = embeddings_table(args)
+    spark.sql(_candidate_sql(args, issues.instance_id)).createOrReplaceTempView("cands")
+    known = f"AND f.hash NOT IN (SELECT hash FROM {table})" if spark.catalog.tableExists(table) else ""
+    todo = spark.sql(f"""
+        SELECT DISTINCT f.hash, f.source FROM {table_name(args, "silver", "functions")} f
+        JOIN cands c ON c.hash = f.hash WHERE true {known}""").toPandas()
+    total = spark.sql("SELECT COUNT(DISTINCT hash) AS n FROM cands").collect()[0].n
+    print(f"{slice_label(args)}: {total} candidate bodies, {len(todo)} to embed with {args.model}", flush=True)
+
+    embedder = EndpointEmbedder(args.model, cache_dir=Path(tempfile.mkdtemp()), client=_workspace())
+    t0 = time.perf_counter()
+    for i in range(0, len(todo), EMBED_CHUNK):
+        chunk = todo.iloc[i:i + EMBED_CHUNK]
+        vecs = embedder.encode(chunk.source.tolist())
+        rows = pd.DataFrame({"hash": chunk.hash.values, "embedding": [v.tolist() for v in vecs]})
+        _insert_new(spark, rows, table, key="hash", schema="hash string, embedding array<float>")
+        embedder.cache.clear()  # the table is the cache here; keep the driver's memory flat
+        done = i + len(chunk)
+        print(f"  {done}/{len(todo)} embedded, {done / (time.perf_counter() - t0):.1f}/s", flush=True)
+    if spark.catalog.tableExists(table):
+        # Delta Sync vector indexes read the table's change feed (sync-index task).
+        spark.sql(f"ALTER TABLE {table} SET TBLPROPERTIES (delta.enableChangeDataFeed = true)")
+
+
+def evaluate(argv: list[str] | None = None) -> None:
+    """Score the non-LLM strategies on the slice, one issue at a time (a django snapshot is
+    ~25k functions with source and 1024-d vectors: per issue fits in memory, the slice may not)."""
+    import mlflow
+    import numpy as np
+
+    from pinpoint import evaluate as ev
+    from pinpoint.embed import EndpointEmbedder
+
+    args = parse_args(argv)
+    spark = _spark()
+    _register_udfs(spark)
+    issues = select_issues(spark.read.table(table_name(args, "bronze", "issues")).toPandas(), args)
+    embedder = EndpointEmbedder(args.model, cache_dir=Path(tempfile.mkdtemp()), client=_workspace())
+    ranked, seeds = {name: {} for name in ev.STRATEGIES}, []
+    for _, issue in issues.iterrows():
+        iid = issue["instance_id"]
+        cands = spark.sql(f"""
+            SELECT c.*, f.source, e.embedding FROM ({_candidate_sql(args, [iid])}) c
+            JOIN {table_name(args, "silver", "functions")} f ON f.hash = c.hash
+            JOIN {embeddings_table(args)} e ON e.hash = c.hash""").toPandas()
+        cands = cands.sort_values(["path", "start_line"]).reset_index(drop=True)
+        edges = spark.sql(f"""SELECT e.* FROM {table_name(args, "silver", "edges")} e
+                              WHERE e.hash IN (SELECT hash FROM ({_candidate_sql(args, [iid])}))""").toPandas()
+        vectors = {h: np.asarray(v, dtype=np.float32) for h, v in zip(cands.hash, cands.embedding)}
+        one = ev.rankings(issues[issues.instance_id == iid], cands.drop(columns="embedding"), vectors,
+                          {iid: embedder.encode_query(issue["problem_statement"])}, edges)
+        for name in ranked:
+            ranked[name].update(one[name])
+        seeds.append(ev.seeds_table(one, cands))
+
+    gt = spark.read.table(table_name(args, "gold", "ground_truth")).toPandas()
+    table = ev.results_table(ranked, gt[gt.instance_id.isin(issues.instance_id)])
+    run_at = pd.Timestamp.now(tz="UTC").isoformat()
+    table = table.assign(slice=slice_label(args), model=args.model, run_at=run_at)
+    print(table[table.repo == "all"].to_string(index=False))
+    spark.createDataFrame(plain_dtypes(table)).write.mode("append").saveAsTable(table_name(args, "gold", "eval_results"))
+    _replace_issues(spark, pd.concat(seeds, ignore_index=True), table_name(args, "gold", "agent_seeds"))
+
+    me = _workspace().current_user.me().user_name
+    mlflow.set_tracking_uri("databricks")
+    mlflow.set_experiment(f"/Users/{me}/pinpoint")
+    for name, level in ev.STRATEGIES.items():
+        rows = table[table.strategy == name]
+        overall = rows[rows.repo == "all"].iloc[0]
+        with mlflow.start_run(run_name=f"{name}-{slice_label(args)}"):
+            mlflow.log_params({"strategy": name, "level": level, "slice": slice_label(args), "model": args.model,
+                               "n": int(overall.n)})
+            mlflow.log_metrics({m.replace("@", "_at_"): float(overall[m]) for m in ev.METRICS})
+            mlflow.log_text(rows.to_csv(index=False), "per_repo.csv")
+
+
+def sync_index(argv: list[str] | None = None) -> None:
+    """Create the Delta Sync index over the embeddings table if it is missing, then sync it.
+    Scoring doesn't use it (exact search per snapshot is cheap); the Week 8 API will."""
+    from databricks.sdk.service.vectorsearch import (DeltaSyncVectorIndexSpecRequest, EmbeddingVectorColumn,
+                                                     PipelineType, VectorIndexType)
+
+    args = parse_args(argv)
+    w = _workspace()
+    source = embeddings_table(args)
+    index = source + "_index"
+    existing = {i.name for i in w.vector_search_indexes.list_indexes(endpoint_name=args.vs_endpoint)}
+    if index not in existing:
+        w.vector_search_indexes.create_index(
+            name=index, endpoint_name=args.vs_endpoint, primary_key="hash", index_type=VectorIndexType.DELTA_SYNC,
+            delta_sync_index_spec=DeltaSyncVectorIndexSpecRequest(
+                source_table=source, pipeline_type=PipelineType.TRIGGERED,
+                embedding_vector_columns=[EmbeddingVectorColumn(name="embedding", embedding_dimension=1024)]))
+        print(f"{index}: created on endpoint {args.vs_endpoint} (first sync starts by itself)")
+        return
+    w.vector_search_indexes.sync_index(index_name=index)
+    print(f"{index}: sync triggered")

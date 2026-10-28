@@ -40,7 +40,7 @@ is in `LEARNING_PLAN.md`.
 ## Progress
 
 - **Current week:** Week 7 done (Agent baseline). Weeks 0-4, 6, 7 done; Week 5 done except the quota check.
-- **Current task:** scale-up prep: embed / sync_index / evaluate job tasks, then re-check winners on 200 tune.
+- **Current task:** why the call graph fails beyond pytest; then full 200 tune run, then H2 agent beyond pytest.
 - **Done so far:**
   - Week 0 setup (by Claude). Repo: github.com/Vishaal-G/PinPoint (private), branch `main`.
   - `data.py` (user): reads SWE-bench Lite from `hf://datasets/SWE-bench/SWE-bench_Lite/...`
@@ -72,7 +72,7 @@ is in `LEARNING_PLAN.md`.
     whole acc@1 .412 / acc@5 .529 / acc@10 .647 / MRR .491;
     split .294 / .529 / .588 / .403; both .294 / .529 / .647 / .410.
     Whole-identifier tokens won on this slice (n=17, so the gap is noisy).
-  - `split.py` (Claude, 2026-10-22): `splits/split.csv` (committed), 200 tune / 100 held-out,
+  - `split.py` (Claude, 2026-10-22): `src/pinpoint/split.csv` (was `splits/split.csv`) (committed), 200 tune / 100 held-out,
     stratified by repo (largest-remainder counts), seed 20261022. `tune_ids()` for runners.
     `bm25.py` main now scores tune only and `run()` limits gold to ranked issues.
     Row 1 (pytest tune, n=11): whole acc@1 .455 / acc@5 .636 / MRR .539. Table in NOTES.md.
@@ -121,6 +121,13 @@ is in `LEARNING_PLAN.md`.
     `--fixes=labels,prompt,options`). A: file MRR .727, fn .200, $0.10/query. H (seeded with dense+graph
     top-10): fn .450. H2 (all fixes): fn .650 (.600 honest, one T=0 noise flip), file .773, $0.076/query.
     Labels and options helped by construction; prompt advice did nothing. Failure table in NOTES.md.
+  - Scale-up job (Claude, 2026-10-27): job tasks `embed` (`embed.EndpointEmbedder`, databricks-bge-large-en,
+    16 texts/request to dodge Free Edition 429s, resumes from the table), `evaluate` (`evaluate.py`, one code
+    path for cloud and laptop -> `gold.eval_results`, `gold.agent_seeds`, MLflow), `sync-index`; `--slice
+    repo|recheck|tune` (`split.recheck_ids()`: 4 per repo + all pytest = 52). `cloud.py` reads small UC tables
+    via the SQL warehouse. split.csv moved into the package so the wheel ships it. Recheck run succeeded.
+  - Recheck (52 issues, 12 repos): dense wins: file MRR .587, fn .232. Dense + call graph fn .147 (last;
+    was .344 on pytest). BM25 fn .174, RRF .162. Rows R* in NOTES.md.
   - Best rows so far (pytest tune): file = H2 agent MRR .773 (dense Strategy 3 .617 is the best non-LLM);
     function = H2 agent MRR .650 (dense + call graph .344 non-LLM). All results in NOTES.md table.
   - Starting slice: `pytest-dev/pytest` (17 issues). Example: pytest-dev__pytest-11143 -> rewrite.py {678}.
@@ -128,7 +135,7 @@ is in `LEARNING_PLAN.md`.
   copied, worktree + MLflow paths rewritten). Old copies: `~/PinPoint.old`, `/mnt/c/.../Desktop/PinPoint` (delete when happy).
   Week 5 quota check still open (user looks it up in the Databricks UI). All results are n=10/11 (pytest only):
   re-check the winners on the 200-issue tune set before trusting them.
-- **Next step:** embed/sync/evaluate job tasks, then re-check the winners (dense+graph, H2) beyond pytest.
+- **Next step:** diagnose graph_fn on the recheck slice, run `--slice tune`, re-check H2 beyond pytest.
   Then Week 8 (FastAPI + bot). Unsolved agent failures: 7220 (trigger vs bug), 9359 (wrong subsystem).
   Optional later: fine-tune a cross-encoder on (issue, gold function) pairs; LLM listwise reranking.
 
@@ -136,7 +143,7 @@ is in `LEARNING_PLAN.md`.
 
 - Python 3.12 (not 3.14) to match Databricks serverless and library support.
 - ~10-week timeline instead of 7.
-- Tune/held-out split (200/100) locked 2026-10-22 in `splits/split.csv`, stratified by repo; never regenerate it.
+- Tune/held-out split (200/100) locked 2026-10-22 in `src/pinpoint/split.csv` (was `splits/split.csv`), stratified by repo; never regenerate it.
 - Claude handles setup/tooling; the user learns the code and the RAG stack (2026-10-09).
 - Ground truth: innermost function containing each changed line; lines outside functions ignored;
   function-less issues kept with `has_function=False` and scored at file level only (2026-10-20).
@@ -146,6 +153,8 @@ is in `LEARNING_PLAN.md`.
 
 ## Session log
 
+- 2026-10-28: Committed scale-up job (embed / evaluate / sync-index, recheck slice). Recheck: dense wins, call graph
+  falls to last (fn .147 vs .344 on pytest). Next: diagnose graph.
 - 2026-10-27: Week 7 done: agent tools + hand-written loop, Strategy A and H, MLflow tracing, 5-failure analysis,
   3 fixes scored one at a time (labels + options help, prompt advice doesn't). H2 fn MRR .650. Next: job tasks.
 - 2026-10-26: Week 5: Spark/Delta toy, parquet -> UC Delta, vector index, Strategy 4 (Databricks hybrid + our RRF),

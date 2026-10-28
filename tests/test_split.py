@@ -46,3 +46,13 @@ def test_tune_ids_reads_saved_file(tmp_path):
     path = tmp_path / "split.csv"
     make_split(fake_issues({"r": 6}), n_heldout=2).to_csv(path, index=False)
     assert len(tune_ids(path)) == 4
+
+
+def test_recheck_ids_is_a_stable_stratified_tune_slice():
+    from pinpoint.split import load_split, recheck_ids, tune_ids
+
+    ids = recheck_ids()
+    assert ids == recheck_ids() and ids <= tune_ids()
+    per_repo = load_split().set_index("instance_id").loc[sorted(ids)].repo.value_counts()
+    assert per_repo["pytest-dev/pytest"] == 11
+    assert per_repo.drop("pytest-dev/pytest").max() == 4 and len(per_repo) == 12

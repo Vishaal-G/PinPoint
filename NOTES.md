@@ -8,7 +8,7 @@ Three takeaways per library, in my own words.
 
 ## Results table (tune set only; held-out is untouched until Week 9)
 
-Split: `splits/split.csv`, 200 tune / 100 held-out, stratified by repo, seed 20261022.
+Split: `src/pinpoint/split.csv` (was `splits/split.csv`), 200 tune / 100 held-out, stratified by repo, seed 20261022.
 Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 points of acc@1.
 
 | # | Strategy | Level | acc@1 | acc@5 | acc@10 | MRR | n |
@@ -51,6 +51,15 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 | H2f | same, function level (.600 without the 11143 noise flip, see notes) | function | .600 | .700 | .700 | .650 | 10 |
 | A2 | A + all 3 fixes (no seeds) | file | .636 | .818 | .818 | .727 | 11 |
 | A2f | same, function level | function | .400 | .600 | .600 | .500 | 10 |
+| 3L | Dense function chunks (Strategy 3, no header) with databricks-bge-large-en endpoint instead of local bge-small | file | .455 | .818 | .818 | .641 | 11 |
+| 3Lf | same, function level | function | .000 | .400 | .500 | .180 | 10 |
+| R3 | **Recheck slice (52 tune issues, all 12 repos, bge-large endpoint, Databricks job).** Dense function chunks | file | .442 | .769 | .808 | .587 | 52 |
+| R3f | same, function level | function | .118 | .373 | .451 | .232 | 51 |
+| R6 | recheck: dense + call graph (Strategy 6), file = best function | file | .308 | .654 | .788 | .460 | 52 |
+| R6f | recheck: dense + call graph, function level | function | .059 | .176 | .275 | .147 | 51 |
+| R1 | recheck: BM25 over function source, file = best function | file | .269 | .519 | .712 | .418 | 52 |
+| R1f | recheck: BM25 over function source | function | .078 | .275 | .353 | .174 | 51 |
+| R4f | recheck: RRF(BM25 fn, dense fn) | function | .039 | .373 | .471 | .162 | 51 |
 
 ## Evaluation (Week 3)
 
@@ -367,3 +376,25 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 - A2 (no seeds, all fixes): fn .200 -> .500 (5103 found at 1, 8906 at 2, 11143 at 2), file .727 unchanged.
   It ignored the --fixtures hint on 5221. Seeds + fixes (H2, .650 / .600 honest) is the best function row.
 - Still unsolved: 7220 (trigger vs bug) and 9359 (wrong subsystem): neither seeds nor tools reach them.
+
+## Embeddings at scale: Databricks endpoint (scale-up prep, `embed.EndpointEmbedder`)
+
+- 200 tune issues = 12 repos (django 76, sympy 51): ~100k-300k unique bodies; local bge-small on CPU
+  (~3/s) would take about a day. Free Edition serves `databricks-bge-large-en` (1024-dim, 512-token
+  truncation, same BGE query prefix), plus gte-large-en and qwen3-embedding-0.6b.
+- Rate limit, measured: max 150 inputs per request, but on Free Edition any request with >= 32 inputs
+  gets HTTP 429 REQUEST_LIMIT_EXCEEDED ("workspace QPS"); 16 per request, sequential, sustains
+  ~24 texts/s (~500k tokens/min) with zero 429s. Batch 4 = 4.6 texts/s: per-request overhead dominates.
+- Gotcha: the SDK's `api_client.do` silently retries 429s for up to 5 minutes, so a batch that can
+  never succeed looks like a hang. Probe with raw `requests` (or a short retry_timeout) to see codes.
+- Same-slice swap check (pytest tune, no header): bge-large file MRR .641 vs bge-small .617, function
+  .180 vs .194. Within noise, so bge-large is a fair stand-in for scale. 5,843 bodies in 3m40s (~26/s).
+
+## Recheck slice: do the pytest winners hold across repos? (2026-10-27 job run)
+
+- Slice: `split.recheck_ids()`, 4 tune issues per repo + all 11 pytest = 52 (51 with a gold function).
+  Job: build_tables -> embed (bge-large endpoint) -> evaluate -> `gold.eval_results` (per repo + "all").
+- Dense wins both levels: file MRR .587, fn .232. The pytest-only winner, dense + call graph
+  (fn .344 on pytest with bge-small), comes **last** across repos (fn .147). Overfit to one small slice.
+- BM25 fn (.174) and RRF (.162) also lose to dense alone. RRF with a weaker partner pulls dense down.
+- Lesson: n=10 on one repo picked the wrong winner. Always recheck on a stratified slice before trusting.

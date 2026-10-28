@@ -26,6 +26,8 @@ resources:
       parameters:
         - name: repo                       # override per run: Run now with different parameters
           default: pytest-dev/pytest
+        - name: slice                      # repo (uses `repo`) | recheck (52 stratified tune) | tune (200)
+          default: repo
       tasks:
         - task_key: ingest
           environment_key: default
@@ -43,7 +45,37 @@ resources:
             package_name: pinpoint
             entry_point: build-tables
             parameters: ["--catalog", "${var.catalog}", "--schema-prefix", "${var.schema_prefix}",
-                         "--repo", "{{job.parameters.repo}}"]
+                         "--repo", "{{job.parameters.repo}}", "--slice", "{{job.parameters.slice}}"]
+
+        - task_key: embed
+          depends_on:
+            - task_key: build_tables
+          environment_key: default
+          max_retries: 2                   # resumes: only bodies missing from the table are embedded
+          python_wheel_task:
+            package_name: pinpoint
+            entry_point: embed
+            parameters: ["--catalog", "${var.catalog}", "--schema-prefix", "${var.schema_prefix}",
+                         "--repo", "{{job.parameters.repo}}", "--slice", "{{job.parameters.slice}}"]
+
+        - task_key: evaluate
+          depends_on:
+            - task_key: embed
+          environment_key: eval
+          python_wheel_task:
+            package_name: pinpoint
+            entry_point: evaluate
+            parameters: ["--catalog", "${var.catalog}", "--schema-prefix", "${var.schema_prefix}",
+                         "--repo", "{{job.parameters.repo}}", "--slice", "{{job.parameters.slice}}"]
+
+        - task_key: sync_index             # for the Week 8 API; scoring doesn't need it
+          depends_on:
+            - task_key: embed
+          environment_key: default
+          python_wheel_task:
+            package_name: pinpoint
+            entry_point: sync-index
+            parameters: ["--catalog", "${var.catalog}", "--schema-prefix", "${var.schema_prefix}"]
 
       environments:
         - environment_key: default
@@ -51,6 +83,12 @@ resources:
             environment_version: "3"      # serverless Python 3.12, matching requires-python
             dependencies:
               - ./dist/*.whl
+        - environment_key: eval            # + MLflow client, to log runs to the workspace's tracking server
+          spec:
+            environment_version: "3"
+            dependencies:
+              - ./dist/*.whl
+              - mlflow-skinny>=2.21
 
 targets:
   dev:

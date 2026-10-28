@@ -13,6 +13,7 @@ model + prompt version, so reruns cost nothing and are stable.
 
     uv run python -m pinpoint.agent [repo]            # Strategy A on a repo's tune issues (default pytest)
     uv run python -m pinpoint.agent [repo] --seeds    # Strategy H: seeded with Pinpoint's top-10
+    uv run python -m pinpoint.agent --slice=recheck --seeds   # 52-issue slice; seeds from gold.agent_seeds (cloud)
     uv run python -m pinpoint.agent <instance_id> [--seeds]   # one issue live, traced in MLflow
 
 Add --fixes=labels,prompt,options (any subset) for the Week 7 failure-analysis fixes:
@@ -355,19 +356,31 @@ if __name__ == "__main__":
 
     from pinpoint.data import load_issues
     from pinpoint.metrics import evaluate
-    from pinpoint.split import tune_ids
+    from pinpoint.split import recheck_ids, tune_ids
     from pinpoint.tracking import log_run
 
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     seeded = "--seeds" in sys.argv
+    recheck = "--slice=recheck" in sys.argv
     repo = args[0] if args else "pytest-dev/pytest"
-    issues = load_issues(repo)
-    issues = issues[issues.instance_id.isin(tune_ids())]  # never score held-out here
+    if recheck:
+        issues = load_issues()
+        issues = issues[issues.instance_id.isin(recheck_ids())]
+    else:
+        issues = load_issues(repo)
+        issues = issues[issues.instance_id.isin(tune_ids())]  # never score held-out here
+    slice_name = "recheck" if recheck else f"{repo} tune"
     gt = pd.read_parquet("data/gold/ground_truth.parquet")
     gold = {"file": dict(zip(gt.instance_id, gt.gold_files)), "fn": dict(zip(gt.instance_id, gt.gold_functions))}
     gold = {level: {i: g[i] for i in issues.instance_id} for level, g in gold.items()}
 
-    seeds = pinpoint_seeds(issues) if seeded else None
+    if seeded and recheck:
+        from pinpoint.cloud import agent_seeds
+
+        # The cloud evaluate task's dense (bge-large) + graph top-10: the same seeds its rows score.
+        seeds = agent_seeds(issues.instance_id)
+    else:
+        seeds = pinpoint_seeds(issues) if seeded else None
     runs = agent_runs(issues, seeds=seeds, fixes=fixes)
     fn = {r.instance_id: list(r.ranking) for r in runs.itertuples()}
     rankings = {"fn": fn, "file": {i: file_ranking(f) for i, f in fn.items()}}
@@ -390,11 +403,11 @@ if __name__ == "__main__":
         seed_ids = {i: [f for f, _, _ in s] for i, s in seeds.items()}
         from_seeds = sum(f in seed_ids[i] for i, f in ids) / max(len(ids), 1)
         r = evaluate(seed_ids, gold["fn"])
-        print(f"  seeds alone (dense + graph top-{TOP_K}): fn " + " ".join(f"{m} {r[m]:.3f}" for m in ("acc@1", "acc@5", "acc@10", "mrr")))
+        print(f"  seeds alone ({'bge-large, cloud' if recheck else 'bge-small'} dense + graph top-{TOP_K}): fn " + " ".join(f"{m} {r[m]:.3f}" for m in ("acc@1", "acc@5", "acc@10", "mrr")))
         print(f"  submitted ids taken from the seed list: {from_seeds:.0%}")
     params = {"strategy": "agent+seeds" if seeded else "agent", "model": MODEL, "prompt_version": version,
               "max_steps": MAX_STEPS, "fixes": ",".join(sorted(fixes)) or "none",
-              "slice": f"{repo} tune"}
+              "slice": slice_name, "seeds": ("cloud bge-large" if recheck else "local bge-small") if seeded else "none"}
     for level in ("file", "fn"):
         r = evaluate(rankings[level], gold[level])
         print(f"  {level:>4}: n={r['n']} " + " ".join(f"{m} {r[m]:.3f}" for m in ("acc@1", "acc@5", "acc@10", "mrr")))
@@ -408,6 +421,13 @@ if __name__ == "__main__":
     with mlflow.start_run(run_name=f"{name}-cost"):
         mlflow.log_params(params)
         mlflow.log_metrics(run_stats)
+    if recheck:
+        repo_of = issues.set_index("instance_id").repo
+        print("\nper repo (fn MRR, file MRR):")
+        for rp in sorted(repo_of.unique()):
+            ids_rp = [i for i in fn if repo_of[i] == rp]
+            fr, ff = (evaluate({i: rankings[lv][i] for i in ids_rp}, {i: gold[lv][i] for i in ids_rp}) for lv in ("fn", "file"))
+            print(f"  {rp:28s} n={fr['n']:>2}/{ff['n']:>2}  fn {fr['mrr']:.3f}  file {ff['mrr']:.3f}")
     print("\nper issue (gold function rank, '-' = not ranked):")
     for r in runs.itertuples():
         g = set(gold["fn"][r.instance_id])

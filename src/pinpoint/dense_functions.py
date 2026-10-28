@@ -5,6 +5,7 @@ embedded once across every snapshot (the cache key is the same sha256 as the sil
 
     uv run python -m pinpoint.dense_functions             # pytest-dev/pytest tune issues
     uv run python -m pinpoint.dense_functions --header    # prepend "path\\nqualname" to each chunk
+    uv run python -m pinpoint.dense_functions --model=databricks-bge-large-en   # Databricks endpoint
 """
 import sys
 
@@ -13,7 +14,7 @@ import pandas as pd
 
 from pinpoint.data import load_issues
 from pinpoint.dense import rank_files, search
-from pinpoint.embed import MODEL, Embedder
+from pinpoint.embed import MODEL, make_embedder
 from pinpoint.repos import is_source_file
 from pinpoint.split import tune_ids
 from pinpoint.tracking import log_run
@@ -33,9 +34,9 @@ def rank_functions(fns: pd.DataFrame, scores: np.ndarray) -> list[str]:
 
 
 def run(issues: pd.DataFrame, gold_files: dict, gold_functions: dict, candidates: pd.DataFrame,
-        header: bool = False, slice_name: str = "") -> dict[str, dict]:
+        header: bool = False, slice_name: str = "", model: str = MODEL) -> dict[str, dict]:
     """`candidates`: membership rows (source files only) joined with each function's source."""
-    embedder = Embedder()
+    embedder = make_embedder(model)
     file_rankings, fn_rankings = {}, {}
     for _, issue in issues.iterrows():
         iid = issue["instance_id"]
@@ -47,7 +48,7 @@ def run(issues: pd.DataFrame, gold_files: dict, gold_functions: dict, candidates
         print(f"  {iid}: {len(fns)} functions, {embedder.misses} embedded so far", flush=True)
 
     ranked = candidates[candidates.instance_id.isin(fn_rankings)]
-    params = {"strategy": "dense-functions", "model": MODEL, "header": header, "slice": slice_name,
+    params = {"strategy": "dense-functions", "model": model, "header": header, "slice": slice_name,
               "chunks_total": len(ranked), "chunks_unique": ranked.hash.nunique(),
               "chunks_embedded": embedder.misses}
     return {
@@ -72,7 +73,8 @@ if __name__ == "__main__":
     issues = issues[issues.instance_id.isin(tune_ids())]  # never score held-out here
     gt = pd.read_parquet("data/gold/ground_truth.parquet")
     results = run(issues, dict(zip(gt.instance_id, gt.gold_files)), dict(zip(gt.instance_id, gt.gold_functions)),
-                  load_candidates(), header="--header" in sys.argv, slice_name=f"{repo} tune")
+                  load_candidates(), header="--header" in sys.argv, slice_name=f"{repo} tune",
+                  model=next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--model=")), MODEL))
     for level, r in results.items():
         print(f"dense functions, {level:8s}  " + "  ".join(
             f"{k}={v:.3f}" for k, v in r.items() if k != "n") + f"  n={r['n']}")
