@@ -43,3 +43,52 @@ def test_slices_select_issues_and_never_heldout():
     assert slice_label(parse_args(["--slice", "recheck"])) == "recheck"
     assert embeddings_table(parse_args([])) == "workspace.pinpoint_silver.embeddings_databricks_bge_large_en"
     assert isinstance(issues, pd.DataFrame)
+
+
+def test_eval_chunks_are_fixed_size_and_one_repo_each():
+    import pandas as pd
+
+    from pinpoint.jobs import eval_chunks
+
+    issues = pd.DataFrame({"instance_id": [f"b-{i}" for i in range(5)] + ["a-1", "a-0"],
+                           "repo": ["b"] * 5 + ["a"] * 2})
+    chunks = eval_chunks(issues, size=2)
+    assert [c.instance_id.tolist() for c in chunks] == [["a-0", "a-1"], ["b-0", "b-1"], ["b-2", "b-3"], ["b-4"]]
+    assert eval_chunks(issues.sample(frac=1, random_state=0), size=2)[2].instance_id.iloc[0] == "b-2"  # order-proof
+
+
+def test_chunked_rankings_equal_per_issue_rankings():
+    """The job ranks a chunk of issues from one merged frame; that must give each issue the same
+    ranking as the local path (candidates_from on that issue alone)."""
+    import numpy as np
+    import pandas as pd
+
+    from pinpoint import evaluate as ev
+    from pinpoint.jobs import chunk_candidates
+    from pinpoint.repos import is_source_file
+    from test_evaluate import fixture
+
+    membership, functions, vectors, edges, _, _ = fixture()
+    other = membership.assign(instance_id="j", start_line=membership.start_line[::-1].values)  # same bodies
+    members = pd.concat([other, membership])
+    members = members[members.path.map(is_source_file)]
+    issues = pd.DataFrame({"instance_id": ["i", "j"], "problem_statement": ["fix crashes", "caller"]})
+    queries = {"i": np.array([0, 0.6, 0.8]), "j": np.array([0.6, 0.8, 0])}
+    chunked = ev.rankings(issues, chunk_candidates(members, functions), vectors, queries, edges)
+    for iid in ("i", "j"):
+        alone = ev.rankings(issues[issues.instance_id == iid],
+                            ev.candidates_from(members[members.instance_id == iid], functions), vectors, queries, edges)
+        assert {name: r[iid] for name, r in chunked.items()} == {name: r[iid] for name, r in alone.items()}
+
+
+def test_checkpoints_round_trip_full_rankings_and_ignore_partial_files(tmp_path):
+    from pinpoint.evaluate import STRATEGIES
+    from pinpoint.jobs import load_checkpoints, save_checkpoint
+
+    long = [f"f{i}" for i in range(80)] + ["f3"]  # longer than eval_rankings' top-50, with a repeat
+    ranked = {name: {"i": long, "j": ["x"]} for name in STRATEGIES}
+    save_checkpoint(tmp_path, "i", ranked)
+    (tmp_path / "k.parquet.part").write_bytes(b"killed mid-write")
+    done, loaded = load_checkpoints(tmp_path)
+    assert done == {"i"} and loaded == ranked
+    assert load_checkpoints(tmp_path / "missing") == (set(), {name: {} for name in STRATEGIES})

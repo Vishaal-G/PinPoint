@@ -23,6 +23,7 @@ import pandas as pd
 
 from pinpoint import pipeline
 from pinpoint.embed import ENDPOINT_MODEL
+from pinpoint.repos import is_source_file
 
 # The file data.HF_URL points at, over plain https: pandas reads it without huggingface_hub.
 HF_HTTPS_URL = "https://huggingface.co/datasets/SWE-bench/SWE-bench_Lite/resolve/main/data/test-00000-of-00001.parquet"
@@ -193,9 +194,63 @@ def embed(argv: list[str] | None = None) -> None:
         spark.sql(f"ALTER TABLE {table} SET TBLPROPERTIES (delta.enableChangeDataFeed = true)")
 
 
+EVAL_CHUNK = 20  # issues per Spark round trip and per checkpoint file
+
+
+def eval_chunks(issues: pd.DataFrame, size: int = EVAL_CHUNK) -> list[pd.DataFrame]:
+    """The slice in a fixed order, at most `size` issues per chunk and one repo per chunk (a
+    repo's snapshots share most bodies, so a chunk's bodies dedupe well). Same slice, same chunks:
+    that is what lets a re-run skip the chunks a killed run already checkpointed."""
+    issues = issues.sort_values("instance_id")
+    return [group.iloc[i:i + size] for _, group in issues.groupby("repo", sort=True)
+            for i in range(0, len(group), size)]
+
+
+def chunk_candidates(members: pd.DataFrame, bodies: pd.DataFrame) -> pd.DataFrame:
+    """Source-file membership rows joined with their bodies (hash, source), in the row order the
+    per-issue rankings depend on (stable sorts break ties by it). Inner join, like the SQL it replaced."""
+    return members.merge(bodies, on="hash").sort_values(["instance_id", "path", "start_line"]).reset_index(drop=True)
+
+
+def save_checkpoint(directory: Path, chunk_id: str, ranked: dict[str, dict[str, list[str]]]) -> None:
+    """Full rankings of one chunk, long format. Written under a temp name and renamed, so a
+    kill mid-write never leaves a file that looks finished."""
+    from pinpoint.evaluate import rankings_table
+
+    directory.mkdir(parents=True, exist_ok=True)
+    part = directory / f"{chunk_id}.parquet.part"
+    rankings_table(ranked, k=None).to_parquet(part, index=False)
+    part.rename(directory / f"{chunk_id}.parquet")
+
+
+def load_checkpoints(directory: Path) -> tuple[set[str], dict[str, dict[str, list[str]]]]:
+    """(chunk ids already done, their rankings), the inverse of save_checkpoint."""
+    from pinpoint.evaluate import STRATEGIES
+
+    ranked = {name: {} for name in STRATEGIES}
+    files = sorted(directory.glob("*.parquet")) if directory.exists() else []
+    for f in files:
+        long = pd.read_parquet(f).sort_values(["strategy", "instance_id", "rank"])
+        for (name, iid), group in long.groupby(["strategy", "instance_id"], sort=False):
+            ranked[name][iid] = group["item"].tolist()
+    return {f.name.removesuffix(".parquet") for f in files}, ranked
+
+
+def _checkpoint_dir(args: argparse.Namespace) -> Path:
+    """One folder per (slice, model) in the bronze volume; deleted once the task succeeds."""
+    name = f"evaluate-{slice_label(args)}-{args.model}".replace("/", "_")
+    return Path(f"/Volumes/{args.catalog}/{args.schema_prefix}_bronze/raw/checkpoints/{name}")
+
+
 def evaluate(argv: list[str] | None = None) -> None:
-    """Score the non-LLM strategies on the slice, one issue at a time (a django snapshot is
-    ~25k functions with source and 1024-d vectors: per issue fits in memory, the slice may not)."""
+    """Score the non-LLM strategies on the slice, one chunk of issues at a time.
+
+    Three Spark queries per chunk (membership, bodies + vectors, edges), not two per issue: each
+    query is a distributed job with seconds of fixed cost, and per issue that cost was ~98% of the
+    first tune run. Each finished chunk is checkpointed to the volume, so a run killed by the
+    Free Edition quota resumes where it stopped instead of starting over."""
+    import shutil
+
     import mlflow
     import numpy as np
 
@@ -205,24 +260,38 @@ def evaluate(argv: list[str] | None = None) -> None:
 
     args = parse_args(argv)
     spark = _spark()
-    _register_udfs(spark)
     issues = select_issues(spark.read.table(table_name(args, "bronze", "issues")).toPandas(), args)
     embedder = EndpointEmbedder(args.model, cache_dir=Path(tempfile.mkdtemp()), client=_workspace())
-    ranked = {name: {} for name in ev.STRATEGIES}
-    for _, issue in issues.iterrows():
-        iid = issue["instance_id"]
-        cands = spark.sql(f"""
-            SELECT c.*, f.source, e.embedding FROM ({_candidate_sql(args, [iid])}) c
-            JOIN {table_name(args, "silver", "functions")} f ON f.hash = c.hash
-            JOIN {embeddings_table(args)} e ON e.hash = c.hash""").toPandas()
-        cands = cands.sort_values(["path", "start_line"]).reset_index(drop=True)
+    checkpoints = _checkpoint_dir(args)
+    spark.sql(f"CREATE VOLUME IF NOT EXISTS {args.catalog}.{args.schema_prefix}_bronze.raw")
+    done, ranked = load_checkpoints(checkpoints)
+    chunks = eval_chunks(issues)
+    print(f"{slice_label(args)}: {len(issues)} issues in {len(chunks)} chunks, {len(done)} already done", flush=True)
+    for chunk in chunks:
+        chunk_id = chunk.instance_id.iloc[0]
+        if chunk_id in done:
+            continue
+        t0 = time.perf_counter()
+        members = spark.sql(f"""SELECT * FROM {table_name(args, "silver", "snapshot_membership")}
+                                WHERE instance_id IN ({in_list(chunk.instance_id)})""").toPandas()
+        members = members[members.path.map(is_source_file)]  # in pandas: a Python UDF is slow in Spark
+        spark.createDataFrame(pd.DataFrame({"hash": members.hash.unique()})).createOrReplaceTempView("chunk_hashes")
+        bodies = spark.sql(f"""
+            SELECT f.hash, f.source, e.embedding FROM chunk_hashes h
+            JOIN {table_name(args, "silver", "functions")} f ON f.hash = h.hash
+            JOIN {embeddings_table(args)} e ON e.hash = h.hash""").toPandas()
         edges = spark.sql(f"""SELECT e.* FROM {table_name(args, "silver", "edges")} e
-                              WHERE e.hash IN (SELECT hash FROM ({_candidate_sql(args, [iid])}))""").toPandas()
-        vectors = {h: np.asarray(v, dtype=np.float32) for h, v in zip(cands.hash, cands.embedding)}
-        one = ev.rankings(issues[issues.instance_id == iid], cands.drop(columns="embedding"), vectors,
-                          {iid: embedder.encode_query(issue["problem_statement"])}, edges)
+                              JOIN chunk_hashes h ON e.hash = h.hash""").toPandas()
+        vectors = {h: np.asarray(v, dtype=np.float32) for h, v in zip(bodies.hash, bodies.embedding)}
+        query_vecs = {i: embedder.encode_query(t) for i, t in zip(chunk.instance_id, chunk.problem_statement)}
+        t1 = time.perf_counter()
+        one = ev.rankings(chunk, chunk_candidates(members, bodies.drop(columns="embedding")), vectors,
+                          query_vecs, edges)
+        save_checkpoint(checkpoints, chunk_id, one)
         for name in ranked:
             ranked[name].update(one[name])
+        print(f"chunk {chunk_id} ({len(chunk)} issues, {len(bodies)} bodies): fetch + queries {t1 - t0:.0f} s, "
+              f"rank {time.perf_counter() - t1:.0f} s", flush=True)
 
     gt = spark.read.table(table_name(args, "gold", "ground_truth")).toPandas()
     table = ev.results_table(ranked, gt[gt.instance_id.isin(issues.instance_id)])
@@ -247,6 +316,7 @@ def evaluate(argv: list[str] | None = None) -> None:
             col = "gold_files" if level == "file" else "gold_functions"
             gold = {i: g for i, g in zip(gt.instance_id, gt[col]) if i in ranked[name]}
             mlflow.log_text(per_issue(ranked[name], gold).to_csv(index=False), "per_issue.csv")
+    shutil.rmtree(checkpoints)  # results are in the tables now; the next run starts fresh
 
 
 def sync_index(argv: list[str] | None = None) -> None:

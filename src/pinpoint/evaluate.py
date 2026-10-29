@@ -74,9 +74,9 @@ def results_table(ranked: dict[str, dict[str, list[str]]], ground_truth: pd.Data
     return pd.DataFrame(rows)
 
 
-def rankings_table(ranked: dict[str, dict[str, list[str]]], k: int = RANKINGS_K) -> pd.DataFrame:
-    """Every strategy's top-k per issue, long format: the table to open when asking *why* a strategy
-    missed on a slice too big to rerun locally."""
+def rankings_table(ranked: dict[str, dict[str, list[str]]], k: int | None = RANKINGS_K) -> pd.DataFrame:
+    """Every strategy's top-k per issue (k=None: all of it), long format: the table to open when asking
+    *why* a strategy missed on a slice too big to rerun locally."""
     rows = [{"strategy": name, "instance_id": iid, "rank": r, "item": item}
             for name, per_issue in ranked.items() for iid, ranking in per_issue.items()
             for r, item in enumerate(ranking[:k], 1)]
