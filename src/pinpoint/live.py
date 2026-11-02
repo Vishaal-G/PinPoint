@@ -83,7 +83,11 @@ def triage(snapshot: Path, repo: str, issue_text: str, embedder, call_llm, k: in
     lines = {f: (int(a), int(b)) for f, a, b in
              fns.sort_values("start_line").drop_duplicates("function_id")[["function_id", "start_line", "end_line"]].values}
     seeds = [(f, *lines[f]) for f in dense[:k]]
-    run = run_agent(call_llm, snapshot, repo, issue_text, seeds=seeds, fixes=FIXES)
+    try:
+        run = run_agent(call_llm, snapshot, repo, issue_text, seeds=seeds, fixes=FIXES)
+    except Exception as e:  # endpoint down or over quota: the dense seeds are still an answer
+        run = {"ranking": [], "stop": f"llm error: {e}", "steps": [], "prompt_tokens": 0,
+               "completion_tokens": 0, "seconds": 0.0}
     agent = [f for f in dict.fromkeys(run["ranking"]) if f in lines]  # drop invented ids
     ranked = agent or dense[:k]  # nothing usable submitted: fall back to the seeds
     return {"functions": [{"id": f, "start_line": lines[f][0], "end_line": lines[f][1]} for f in ranked],

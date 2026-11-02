@@ -482,3 +482,21 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 - `HTTPException(404)` for "valid request, but we can't serve it" (repo not indexed) vs 422 "malformed".
 - `TestClient` calls the app in-process (no server, no port); uvicorn is the real ASGI server.
 - Deps: new uv group `api` (fastapi, uvicorn), httpx in `dev` (TestClient needs it). Kept out of the wheel.
+
+## Week 8: /triage endpoint (`api.py`, `explain.py`, `blame.py`, 2026-11-01)
+
+- `POST /triage {repo, ref?, title, body, k}` -> suspects (function, lines, owner), files, explanation with
+  checked citations, warnings, tokens. Pipeline = `live.triage` (dense seeds -> H3 agent) + generation + blame.
+- Generation (the G in RAG): top-3 suspects' numbered source (<= 80 lines each) + "use only this code, cite
+  path:line". Every citation is then checked: valid iff the line is inside an excerpt we showed. Share of
+  valid citations = a label-free faithfulness score. Bare `mod.py:6` (no directory) counts as invalid.
+- Owner: `git blame -L start,end -w` at the triaged commit; most lines wins, ties go to the most recent
+  author, bots skipped. `-w` so a reformat commit doesn't own everything it re-indented.
+- Degrades instead of failing: LLM down -> dense ranking + warning (agent) and no explanation (warning);
+  embedding endpoint down -> 503; clone/ref fails -> 404; bad input -> 422.
+- FastAPI `Depends` + `app.dependency_overrides`: embedder and LLM are injected, tests swap in fakes.
+  `def` (not `async def`) endpoint -> runs in a worker thread, blocking git/HTTP calls don't freeze the server.
+  Per-repo lock: requests share one checkout and `git checkout` would move it under a running request.
+- Smoke test 2026-11-01 (Databricks quota-blocked): real uvicorn, pytest @ 99ab2ac -> 503 "embedding failed"
+  in 4.7 s, as designed. Full live run pending the quota.
+- Open (design decision): a cold repo takes minutes to embed, too long for one HTTP request / Actions call.
