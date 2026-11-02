@@ -9,6 +9,7 @@ on:
   workflow_dispatch: {}       # "Run workflow" button for an on-demand snapshot
 
 permissions:
+  contents: read              # checkout (listing permissions sets every unlisted one to none)
   issues: read                # read-only: this job never writes to the repo
 
 jobs:
