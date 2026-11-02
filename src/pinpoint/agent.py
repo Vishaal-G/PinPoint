@@ -13,7 +13,8 @@ model + prompt version, so reruns cost nothing and are stable.
 
     uv run python -m pinpoint.agent [repo]            # Strategy A on a repo's tune issues (default pytest)
     uv run python -m pinpoint.agent [repo] --seeds    # Strategy H: seeded with Pinpoint's top-10
-    uv run python -m pinpoint.agent --slice=recheck --seeds   # 52-issue slice; seeds from gold.agent_seeds (cloud)
+    uv run python -m pinpoint.agent --slice=recheck --seeds   # 52-issue slice; seeds from gold.eval_rankings (cloud)
+    uv run python -m pinpoint.agent --slice=tune --seeds      # all 200 tune issues, same seeds
     uv run python -m pinpoint.agent <instance_id> [--seeds]   # one issue live, traced in MLflow
 
 Add --fixes=labels,prompt,options,graph (any subset) for the Week 7 failure-analysis fixes:
@@ -23,7 +24,7 @@ Add --fixes=labels,prompt,options,graph (any subset) for the Week 7 failure-anal
     graph    a call_graph tool (callers / callees of a function): the graph as the agent's information,
              since re-ranking with it blindly hurt across repos (NOTES.md, recheck)
 
-On --slice=recheck the seeds are the cloud's dense top-10 (bge-large); elsewhere the old dense + graph
+On --slice=recheck or --slice=tune the seeds are the cloud's dense top-10 (bge-large); elsewhere the old dense + graph
 top-10 (bge-small). The seed source is part of the cache key.
 """
 import hashlib
@@ -372,27 +373,28 @@ if __name__ == "__main__":
 
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     seeded = "--seeds" in sys.argv
-    recheck = "--slice=recheck" in sys.argv
+    slice_ = next((a.removeprefix("--slice=") for a in sys.argv if a.startswith("--slice=")), None)
+    cloud = slice_ is not None  # recheck / tune: cross-repo slices, seeded from the cloud evaluate task
     repo = args[0] if args else "pytest-dev/pytest"
-    if recheck:
+    if cloud:
         issues = load_issues()
-        issues = issues[issues.instance_id.isin(recheck_ids())]
+        issues = issues[issues.instance_id.isin(recheck_ids() if slice_ == "recheck" else tune_ids())]
     else:
         issues = load_issues(repo)
         issues = issues[issues.instance_id.isin(tune_ids())]  # never score held-out here
-    slice_name = "recheck" if recheck else f"{repo} tune"
+    slice_name = slice_ if cloud else f"{repo} tune"
     gt = pd.read_parquet("data/gold/ground_truth.parquet")
     gold = {"file": dict(zip(gt.instance_id, gt.gold_files)), "fn": dict(zip(gt.instance_id, gt.gold_functions))}
     gold = {level: {i: g[i] for i in issues.instance_id} for level, g in gold.items()}
 
-    if seeded and recheck:
+    if seeded and cloud:
         from pinpoint.cloud import agent_seeds
 
         # The cloud evaluate task's dense top-10 (bge-large): graph expansion lost on this slice (NOTES.md).
         seeds = agent_seeds(issues.instance_id, strategy="dense_fn")
     else:
         seeds = pinpoint_seeds(issues) if seeded else None
-    seed_source = "dense" if recheck else "graph"
+    seed_source = "dense" if cloud else "graph"
     runs = agent_runs(issues, seeds=seeds, fixes=fixes, seed_source=seed_source)
     fn = {r.instance_id: list(r.ranking) for r in runs.itertuples()}
     rankings = {"fn": fn, "file": {i: file_ranking(f) for i, f in fn.items()}}
@@ -415,11 +417,11 @@ if __name__ == "__main__":
         seed_ids = {i: [f for f, _, _ in s] for i, s in seeds.items()}
         from_seeds = sum(f in seed_ids[i] for i, f in ids) / max(len(ids), 1)
         r = evaluate(seed_ids, gold["fn"])
-        print(f"  seeds alone ({'bge-large dense, cloud' if recheck else 'bge-small dense + graph'} top-{TOP_K}): fn " + " ".join(f"{m} {r[m]:.3f}" for m in ("acc@1", "acc@5", "acc@10", "mrr")))
+        print(f"  seeds alone ({'bge-large dense, cloud' if cloud else 'bge-small dense + graph'} top-{TOP_K}): fn " + " ".join(f"{m} {r[m]:.3f}" for m in ("acc@1", "acc@5", "acc@10", "mrr")))
         print(f"  submitted ids taken from the seed list: {from_seeds:.0%}")
     params = {"strategy": "agent+seeds" if seeded else "agent", "model": MODEL, "prompt_version": version,
               "max_steps": MAX_STEPS, "fixes": ",".join(sorted(fixes)) or "none",
-              "slice": slice_name, "seeds": ("cloud bge-large dense" if recheck else "local bge-small dense+graph") if seeded else "none"}
+              "slice": slice_name, "seeds": ("cloud bge-large dense" if cloud else "local bge-small dense+graph") if seeded else "none"}
     for level in ("file", "fn"):
         r = evaluate(rankings[level], gold[level])
         print(f"  {level:>4}: n={r['n']} " + " ".join(f"{m} {r[m]:.3f}" for m in ("acc@1", "acc@5", "acc@10", "mrr")))
@@ -433,7 +435,7 @@ if __name__ == "__main__":
     with mlflow.start_run(run_name=f"{name}-cost"):
         mlflow.log_params(params)
         mlflow.log_metrics(run_stats)
-    if recheck:
+    if cloud:
         repo_of = issues.set_index("instance_id").repo
         print("\nper repo (fn MRR, file MRR):")
         for rp in sorted(repo_of.unique()):

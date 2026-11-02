@@ -66,6 +66,13 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 | RH2f | same, function level | function | .471 | .627 | .627 | .540 | 51 |
 | RH3 | recheck: H2 dense seeds + call_graph tool (fix 4) | file | .731 | .885 | .885 | .804 | 52 |
 | RH3f | same, function level | function | .529 | .725 | .745 | .614 | 51 |
+| T3 | **Tune set (all 200 tune issues, bge-large endpoint, Databricks job, 2026-10-29).** Dense function chunks | file | .440 | .715 | .820 | .567 | 200 |
+| T3f | same, function level | function | .207 | .380 | .495 | .295 | 184 |
+| T4f | tune: RRF(BM25 fn, dense fn) | function | .158 | .391 | .522 | .262 | 184 |
+| T1 | tune: BM25 over function source, file = best function | file | .345 | .560 | .690 | .463 | 200 |
+| T1f | tune: BM25 over function source | function | .163 | .293 | .375 | .232 | 184 |
+| T6 | tune: dense + call graph, file = best function | file | .315 | .595 | .735 | .448 | 200 |
+| T6f | tune: dense + call graph, function level | function | .092 | .228 | .299 | .168 | 184 |
 
 ## Evaluation (Week 3)
 
@@ -404,6 +411,24 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
   (fn .344 on pytest with bge-small), comes **last** across repos (fn .147). Overfit to one small slice.
 - BM25 fn (.174) and RRF (.162) also lose to dense alone. RRF with a weaker partner pulls dense down.
 - Lesson: n=10 on one repo picked the wrong winner. Always recheck on a stratified slice before trusting.
+
+## Tune set: all 200 tune issues (2026-10-29 job run)
+
+- Dense still wins both levels on 200 issues: file MRR .567, fn .295. Call graph last again (fn .168):
+  dropping it as a re-ranker holds up.
+- RRF moves from last (recheck .162) to second at function level (.262), with the best acc@10 (.522):
+  fusion pulls more gold functions into the top 10 but lower down. Matters for agent seeds (top-10).
+- Tune is 38% django (76) and 26% sympy (51); recheck is ~4 per repo. Tune = "SWE-bench as a whole",
+  recheck = "a typical repo". Report both; they answer different questions.
+- Runtime: first attempt killed by Free Edition quota (`RESOURCE_USAGE_BLOCKED`) after 5.5 h of evaluate,
+  at issue ~176, all lost. Cause: 2 Spark queries per issue (fixed cost ~98 s of ~100 s per issue) + a
+  Python UDF filter + no checkpoints. Fix (`jobs.evaluate`): 3 queries per 20-issue chunk, filter in pandas,
+  full rankings checkpointed to the bronze volume per chunk (resume skips done chunks). Recheck reproduced
+  all 91 eval_results rows exactly, 26 min vs ~1.5 h. Tune: 3 h 27 min, no quota kill.
+- Still slow: ranking on the serverless driver (sympy ~170 s/issue vs ~9 s on the laptop, mostly BM25).
+  Fetch is now 4-23 s per chunk. Not profiled yet.
+- Lessons: Spark wants one big set-based query, not many small ones in a loop; Python UDFs leave the JVM
+  per row; long jobs on a quota'd platform must checkpoint; verify a refactor by exact parity on old results.
 
 ## Why the call graph loses on the recheck slice (`scratch/recheck_graph.py`, 2026-10-28)
 
