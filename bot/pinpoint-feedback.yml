@@ -1,0 +1,34 @@
+# Pinpoint feedback: copy to .github/workflows/pinpoint-feedback.yml next to pinpoint.yml.
+# Actions has no "reaction added" event, so this pulls on a schedule. Every run is a full snapshot
+# (reactions can be removed later); the CSV is kept as a run artifact, the summary shows on the run page.
+name: Pinpoint feedback
+
+on:
+  schedule:
+    - cron: "0 13 * * 1"     # Mondays 13:00 UTC
+  workflow_dispatch: {}       # "Run workflow" button for an on-demand snapshot
+
+permissions:
+  issues: read                # read-only: this job never writes to the repo
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Pinpoint
+        run: pip install "pinpoint[bot] @ ${PINPOINT_SOURCE}"
+        env:
+          PINPOINT_SOURCE: git+https://github.com/Vishaal-G/PinPoint.git
+      - name: Collect reactions
+        run: pinpoint-feedback --out feedback.csv
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pinpoint-feedback-${{ github.run_id }}
+          path: feedback.csv
+          retention-days: 90

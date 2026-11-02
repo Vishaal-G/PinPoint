@@ -25,6 +25,7 @@ embed = "pinpoint.jobs:embed"
 evaluate = "pinpoint.jobs:evaluate"
 sync-index = "pinpoint.jobs:sync_index"
 pinpoint-bot = "pinpoint.bot:main"
+pinpoint-feedback = "pinpoint.feedback:main"
 
 [project.optional-dependencies]
 # The GitHub Actions bot: `pip install "pinpoint[bot]"` on a runner (Databricks preinstalls the SDK).

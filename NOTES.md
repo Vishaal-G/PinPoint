@@ -520,3 +520,18 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 - `actions/cache` entries are immutable: save under a per-run key, restore the newest by prefix.
 - Auth: `cloud.workspace()` = env (`DATABRICKS_HOST/TOKEN`) when set, else the laptop's CLI profile.
 - Wheel + `[bot]` in a clean venv: 320 MB, no torch/mlflow/fastapi imported. 170 tests pass.
+
+## Week 8: reaction feedback (`feedback.py`, `.github/workflows/pinpoint-feedback.yml`, 2026-11-02)
+
+- Explicit feedback (👍/👎) is cheap but sparse and self-selected: always report coverage (share of comments
+  with any human vote) next to approval (👍 / (👍+👎)). Under ~20 rated comments the approval rate is noise.
+  Implicit feedback (did the PR that closed the issue touch our suspects?) is the stronger signal; not built yet.
+- Actions has no "reaction added" event, so feedback is *pulled*: a weekly + on-demand workflow lists the repo's
+  issue comments (`get_issues_comments`, one paged call), keeps ours (marker + Bot author, so a user quoting
+  the marker can't spoof it), counts human reactions only, uploads a CSV artifact, writes the run summary.
+- Every run is a full snapshot, not an append log: reactions can be removed later, so the latest is the truth.
+- The comment is its own log record: a hidden `<!-- pinpoint-meta {commit, source, suspects} -->` line stores
+  what we suggested, so votes join to rankings without a database. `>` escaped as `>` so a path
+  containing `-->` can't end the HTML comment early.
+- `author_voted`: the issue author knows the bug best; their vote is the most informed.
+- Caveat: a rerun edits the comment in place, but old reactions stay attached to the new ranking.

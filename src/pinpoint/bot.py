@@ -16,6 +16,7 @@ never reaches a shell, and the agent's tools are read-only inside the checkout.
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -23,6 +24,21 @@ from pinpoint import live
 from pinpoint.explain import CITATION
 
 MARKER = "<!-- pinpoint -->"  # finds our earlier comment on a rerun, so we edit instead of piling up
+META = re.compile(r"<!-- pinpoint-meta (\{.*?\}) -->")
+
+
+def meta_line(rep: dict) -> str:
+    """What we suggested, hidden in the comment itself: feedback.py reads it back next to the reactions,
+    so the comment is its own log record (no database). `>` is escaped so the JSON can't close the HTML
+    comment early (json.loads turns \\u003e back into `>`)."""
+    meta = {"v": 1, "commit": rep["commit"], "source": rep["source"],
+            "suspects": [s["function_id"] for s in rep["suspects"]]}
+    return f"<!-- pinpoint-meta {json.dumps(meta).replace('>', '\\u003e')} -->"
+
+
+def read_meta(body: str) -> dict | None:
+    m = META.search(body or "")
+    return json.loads(m[1]) if m else None
 
 
 def link(repo: str, sha: str, path: str, start: int, end: int | None = None) -> str:
@@ -43,7 +59,7 @@ def format_comment(rep: dict) -> str:
         who = f"{o['name']} ({o['share']:.0%} of lines)" if o else "unknown"
         rows.append(f"| {i} | [`{qualname}`]({link(repo, sha, s['path'], s['start_line'], s['end_line'])}) "
                     f"| `{s['path']}` | {s['start_line']}-{s['end_line']} | {defang(who)} |")
-    out = [MARKER, "### Pinpoint: where to look", "",
+    out = [MARKER, meta_line(rep), "### Pinpoint: where to look", "",
            "| # | Function | File | Lines | Most lines by |", "|---|---|---|---|---|", *rows]
     if rep["explanation"]:
         valid = {(c["path"], c["line"]) for c in rep["explanation"]["citations"] if c["valid"]}
