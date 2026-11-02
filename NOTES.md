@@ -471,3 +471,14 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
   **Miss**: gold compat.py::getlocation (shared helper with the off-by-one); agent ranked the
   --fixtures-per-test code that calls it (trigger vs bug, like 7220), stopping at 7 of 15 steps.
 - Gotcha: a fresh GitHub clone can die with "RPC failed; curl 56 Connection reset"; a retry worked.
+
+## Week 8: FastAPI toy (`scratch/week8_fastapi_toy.py`, 2026-11-01)
+
+- FastAPI turns type hints into the API: a function arg not in the path = query param; a Pydantic model
+  arg = JSON body. Same hints generate the OpenAPI schema and `/docs` for free.
+- Pydantic validates the request before your code runs: bad input = 422 with every bad field listed
+  (`loc`, `msg`, `input`), not just the first. Constraints live on the type (`Field(pattern=, ge=, le=)`).
+- `response_model` is an output filter: extra keys in what you return are dropped (no leaking internals).
+- `HTTPException(404)` for "valid request, but we can't serve it" (repo not indexed) vs 422 "malformed".
+- `TestClient` calls the app in-process (no server, no port); uvicorn is the real ASGI server.
+- Deps: new uv group `api` (fastapi, uvicorn), httpx in `dev` (TestClient needs it). Kept out of the wheel.

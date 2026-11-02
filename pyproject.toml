@@ -30,7 +30,13 @@ requires = ["uv_build>=0.12.24,<0.13.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
+# The web API (Week 8): local for now, left out of the Databricks wheel.
+api = [
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+]
 dev = [
+    "httpx>=0.28.1",
     "ipykernel>=7.4.0",
     "pytest>=9.1.1",
 ]
@@ -44,7 +50,7 @@ local = [
 ]
 
 [tool.uv]
-default-groups = ["dev", "local"]
+default-groups = ["dev", "local", "api"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
