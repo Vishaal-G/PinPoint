@@ -500,3 +500,23 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
 - Smoke test 2026-11-01 (Databricks quota-blocked): real uvicorn, pytest @ 99ab2ac -> 503 "embedding failed"
   in 4.7 s, as designed. Full live run pending the quota.
 - Open (design decision): a cold repo takes minutes to embed, too long for one HTTP request / Actions call.
+
+## Week 8: GitHub Actions bot (`bot.py`, `.github/workflows/pinpoint.yml`, 2026-11-02)
+
+- Hosting decision (option A): the pipeline runs *inside* the Actions job. Nothing listens on the internet,
+  so no inbound auth; minutes-long cold runs are just a long job; the checkout is the snapshot. Rejected for
+  now: Databricks App (OAuth M2M for Actions, same quota), laptop + tunnel (not always on), GitHub App +
+  webhook server (the real product; overkill). FastAPI stays for the Week 9 UI: one core (`live.report`),
+  two front-ends.
+- Flow: `issues: opened` -> checkout (fetch-depth 0, blame needs history) -> `pip install ".[bot]"` ->
+  `pinpoint-bot` reads the issue from `$GITHUB_EVENT_PATH` -> comment via PyGithub with `GITHUB_TOKEN`.
+- Comment: suspects table linked to `blob/<sha>/path#Lstart-Lend` (permalinks, not `main`, so links don't
+  rot), owner by name (no @, no pinging), explanation with only *valid* citations linked, warnings folded.
+  Hidden `<!-- pinpoint -->` marker: a rerun edits our comment instead of adding another.
+- Security: (1) script injection: never put `${{ github.event.issue.* }}` in `run:`, read the event file;
+  (2) quota abuse: `concurrency` = one run at a time, skip bot authors; (3) prompt injection: agent tools are
+  read-only in the checkout and the workflow (not the model) posts; model output has `@` defanged;
+  (4) least privilege: `permissions: contents: read, issues: write`.
+- `actions/cache` entries are immutable: save under a per-run key, restore the newest by prefix.
+- Auth: `cloud.workspace()` = env (`DATABRICKS_HOST/TOKEN`) when set, else the laptop's CLI profile.
+- Wheel + `[bot]` in a clean venv: 320 MB, no torch/mlflow/fastapi imported. 170 tests pass.
