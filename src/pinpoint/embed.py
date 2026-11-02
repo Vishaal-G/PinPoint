@@ -70,9 +70,9 @@ class EndpointEmbedder(Embedder):
 
     def __init__(self, endpoint: str = ENDPOINT_MODEL, cache_dir: Path = Path("data/silver"), client=None):
         if client is None:
-            from databricks.sdk import WorkspaceClient  # local group only
+            from pinpoint.cloud import workspace
 
-            client = WorkspaceClient(profile="pinpoint")
+            client = workspace()
         self.client, self.endpoint = client, endpoint
         self.cache_path = Path(cache_dir) / f"embeddings_{endpoint}.parquet"
         self.cache = {}

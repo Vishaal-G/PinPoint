@@ -235,10 +235,10 @@ def run_agent(call_llm, snapshot: Path, repo: str, issue_text: str, max_steps: i
 
 
 def databricks_llm(model: str = MODEL):
-    """call_llm for a Databricks Foundation Model endpoint (profile `pinpoint`)."""
-    from databricks.sdk import WorkspaceClient  # local group only
+    """call_llm for a Databricks Foundation Model endpoint (env credentials or profile `pinpoint`)."""
+    from pinpoint.cloud import workspace
 
-    w = WorkspaceClient(profile="pinpoint")
+    w = workspace()
     return lambda body: w.api_client.do("POST", f"/serving-endpoints/{model}/invocations", body=body)
 
 

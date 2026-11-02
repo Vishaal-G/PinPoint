@@ -1,0 +1,112 @@
+import json
+import sys
+import types
+
+from git import Repo
+
+from pinpoint import bot
+from test_agent import reply, scripted
+from test_api import repo  # noqa: F401  (fixture: two-author git repo)
+from test_live import FakeEmbedder
+
+SHA = "abcdef1234567890"
+REPORT = {
+    "repo": "o/r", "commit": SHA, "source": "agent", "warnings": [],
+    "suspects": [{"function_id": "pkg/mod.py::beta", "path": "pkg/mod.py", "start_line": 5, "end_line": 6,
+                  "owner": {"name": "Bob", "email": "bob@x.org", "lines": 1, "share": 0.5}},
+                 {"function_id": "pkg/mod.py::alpha", "path": "pkg/mod.py", "start_line": 1, "end_line": 2,
+                  "owner": None}],
+    "explanation": {"text": "beta raises at pkg/mod.py:6, not pkg/mod.py:40. cc @alice",
+                    "citations": [{"path": "pkg/mod.py", "line": 6, "valid": True},
+                                  {"path": "pkg/mod.py", "line": 40, "valid": False}]},
+}
+
+
+def test_comment_links_suspects_and_only_valid_citations():
+    body = bot.format_comment(REPORT)
+    assert body.startswith(bot.MARKER)
+    assert f"[`beta`](https://github.com/o/r/blob/{SHA}/pkg/mod.py#L5-L6)" in body
+    assert "Bob (50% of lines)" in body and "| unknown |" in body
+    assert f"[pkg/mod.py:6](https://github.com/o/r/blob/{SHA}/pkg/mod.py#L6)" in body
+    assert "pkg/mod.py:40" in body and "#L40" not in body          # invalid citation stays plain text
+    assert "@alice" not in body and "@​alice" in body           # no pinging from model output
+    assert "agent (dense retrieval" in body and "Warnings" not in body
+
+
+def test_comment_shows_fallback_and_warnings():
+    body = bot.format_comment({**REPORT, "source": "dense", "explanation": None, "warnings": ["no explanation: down"]})
+    assert "dense retrieval only" in body and "**Why:**" not in body
+    assert "<details><summary>Warnings</summary>" in body and "- no explanation: down" in body
+
+
+class FakeComment:
+    def __init__(self, body, bot_user=True):
+        self.body, self.user = body, types.SimpleNamespace(type="Bot" if bot_user else "User")
+        self.html_url = "https://github.com/o/r/issues/1#c1"
+
+    def edit(self, body):
+        self.body = body
+
+
+def fake_github(monkeypatch, comments):
+    created = []
+
+    class Issue:
+        def get_comments(self):
+            return comments
+
+        def create_comment(self, body):
+            created.append(body)
+            return types.SimpleNamespace(html_url="https://github.com/o/r/issues/1#new")
+
+    class Github:
+        def __init__(self, auth):
+            assert auth.token == "tok"
+
+        def get_repo(self, name):
+            assert name == "o/r"
+            return types.SimpleNamespace(get_issue=lambda n: Issue())
+
+    monkeypatch.setitem(sys.modules, "github", types.SimpleNamespace(
+        Github=Github, Auth=types.SimpleNamespace(Token=lambda t: types.SimpleNamespace(token=t))))
+    return created
+
+
+def test_post_edits_our_earlier_comment(monkeypatch):
+    ours, theirs = FakeComment(f"{bot.MARKER} old"), FakeComment(f"quoting {bot.MARKER}", bot_user=False)
+    created = fake_github(monkeypatch, [theirs, ours])
+    assert bot.post("o/r", 1, "new body", "tok") == ours.html_url
+    assert (ours.body, theirs.body, created) == ("new body", f"quoting {bot.MARKER}", [])
+
+
+def test_post_creates_when_none(monkeypatch):
+    created = fake_github(monkeypatch, [FakeComment("unrelated", bot_user=False)])
+    assert bot.post("o/r", 1, "body", "tok").endswith("#new") and created == ["body"]
+
+
+def event_file(tmp_path, user_type="User"):
+    path = tmp_path.parent / f"{tmp_path.name}-event.json"   # outside the checkout
+    path.write_text(json.dumps({"issue": {"number": 7, "title": "it crashes", "body": "boom",
+                                          "user": {"type": user_type}}}))
+    return path
+
+
+def test_main_dry_run_end_to_end(repo, monkeypatch, capsys):  # noqa: F811
+    import pinpoint.agent
+    import pinpoint.embed
+
+    call, bodies = scripted(reply(("submit_ranking", {"functions": ["pkg/mod.py::beta"]})),
+                            reply(content="beta raises at pkg/mod.py:6."))
+    monkeypatch.setattr(pinpoint.agent, "databricks_llm", lambda: call)
+    monkeypatch.setattr(pinpoint.embed, "EndpointEmbedder", lambda *a, **kw: FakeEmbedder())
+    assert bot.main(["--event", str(event_file(repo)), "--repo", "o/r", "--workspace", str(repo), "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    sha = Repo(repo).head.commit.hexsha
+    assert f"o/r#7 @ {sha[:7]}: it crashes" in out
+    assert f"[`beta`](https://github.com/o/r/blob/{sha}/pkg/mod.py#L5-L6)" in out and "Bob (50% of lines)" in out
+    assert "it crashes\nboom" in bodies[0]["messages"][1]["content"]       # title + body reach the agent
+
+
+def test_main_skips_bot_issues(repo, capsys):  # noqa: F811
+    assert bot.main(["--event", str(event_file(repo, "Bot")), "--repo", "o/r", "--workspace", str(repo)]) == 0
+    assert "skipping" in capsys.readouterr().out

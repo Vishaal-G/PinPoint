@@ -77,9 +77,9 @@ def llm_queries(issues: pd.DataFrame, model: str = MODEL) -> pd.DataFrame:
     cache = stored[(stored.model == model) & (stored.prompt_version == PROMPT_VERSION)]
     todo = issues[~issues.instance_id.isin(cache.instance_id)]
     if len(todo):
-        from databricks.sdk import WorkspaceClient  # local group only
+        from pinpoint.cloud import workspace
 
-        w = WorkspaceClient(profile="pinpoint")
+        w = workspace()
         rows = []
         for _, issue in todo.iterrows():
             args, usage = ask(w, issue["repo"], issue["problem_statement"], model)

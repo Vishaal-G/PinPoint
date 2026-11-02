@@ -6,6 +6,7 @@ JSON, so this is for small tables only (seeds, results), not for silver.
 
     uv run python -m pinpoint.cloud "SELECT * FROM workspace.pinpoint_gold.eval_results"
 """
+import os
 import sys
 
 import pandas as pd
@@ -13,17 +14,19 @@ import pandas as pd
 CATALOG, PREFIX = "workspace", "pinpoint"
 
 
-def _client():
+def workspace():
+    """A WorkspaceClient: from DATABRICKS_HOST / DATABRICKS_TOKEN when set (GitHub Actions, CI),
+    else the laptop's `pinpoint` CLI profile."""
     from databricks.sdk import WorkspaceClient  # local group only
 
-    return WorkspaceClient(profile="pinpoint")
+    return WorkspaceClient() if os.environ.get("DATABRICKS_HOST") else WorkspaceClient(profile="pinpoint")
 
 
 def query(sql: str, client=None) -> pd.DataFrame:
     """Run one SQL statement and return its rows. Waits for a cold warehouse to start."""
     from databricks.sdk.service.sql import Disposition, Format, StatementState
 
-    w = client or _client()
+    w = client or workspace()
     warehouse = next(iter(w.warehouses.list())).id
     r = w.statement_execution.execute_statement(statement=sql, warehouse_id=warehouse, wait_timeout="50s",
                                                 disposition=Disposition.INLINE, format=Format.JSON_ARRAY)

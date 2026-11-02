@@ -2,9 +2,10 @@
 
     uv run uvicorn pinpoint.api:app --port 8000        # docs at http://127.0.0.1:8000/docs
 
-The pipeline is live.triage (checkout -> parse -> embed -> dense seeds -> H3 agent), then
-explain.explain (grounded generation) and blame.owner per suspect. The embedder and LLM come in
-through FastAPI dependencies, so tests swap in fakes with app.dependency_overrides.
+The pipeline is live.report: live.triage (checkout -> parse -> embed -> dense seeds -> H3 agent),
+then explain.explain (grounded generation) and blame.owner per suspect; bot.py runs the same core.
+The embedder and LLM come in through FastAPI dependencies, so tests swap in fakes with
+app.dependency_overrides.
 Requests are synchronous: a repo whose functions aren't embedded yet takes minutes (see NOTES.md).
 """
 import threading
@@ -18,8 +19,6 @@ from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from pinpoint import live
-from pinpoint.blame import owner
-from pinpoint.explain import explain
 
 app = FastAPI(title="Pinpoint", description="Points to the functions most likely responsible for an issue.")
 
@@ -101,7 +100,7 @@ def triage(req: TriageRequest, embedder=Depends(get_embedder), call_llm=Depends(
     # don't stall the server's event loop.
     from git import GitCommandError
 
-    t0, warnings = time.perf_counter(), []
+    t0 = time.perf_counter()
     text = f"{req.title}\n{req.body}".strip()
     with _repo_locks[req.repo]:
         try:
@@ -109,26 +108,7 @@ def triage(req: TriageRequest, embedder=Depends(get_embedder), call_llm=Depends(
         except GitCommandError as e:
             raise HTTPException(404, f"cannot check out {req.repo} at {req.ref or 'default branch'}") from e
         try:
-            out = live.triage(snapshot, req.repo, text, embedder, call_llm)
+            out = live.report(snapshot, sha, req.repo, text, embedder, call_llm, k=req.k)
         except Exception as e:  # embedding endpoint down: no ranking at all
             raise HTTPException(503, f"embedding failed: {e}") from e
-        if out["source"] == "dense":
-            warnings.append(f"agent unavailable ({out['stop']}); showing dense retrieval only")
-        top = out["functions"][:req.k]
-        suspects = [{"function_id": f["id"], "path": f["id"].split("::", 1)[0], "start_line": f["start_line"],
-                     "end_line": f["end_line"],
-                     "owner": owner(snapshot, f["id"].split("::", 1)[0], f["start_line"], f["end_line"], rev=sha)}
-                    for f in top]
-        explanation, tokens = None, (out["prompt_tokens"], out["completion_tokens"])
-        try:
-            ex = explain(call_llm, text, snapshot, out["functions"])
-            explanation = {"text": ex["text"], "citations": ex["citations"]}
-            tokens = (tokens[0] + ex["prompt_tokens"], tokens[1] + ex["completion_tokens"])
-            if any(not c["valid"] for c in ex["citations"]):
-                warnings.append("explanation cites lines outside the code it was shown")
-        except Exception as e:
-            warnings.append(f"no explanation: {e}")
-    return {"repo": req.repo, "commit": sha, "source": out["source"], "suspects": suspects,
-            "files": list(dict.fromkeys(s["path"] for s in suspects)), "explanation": explanation,
-            "warnings": warnings, "seconds": round(time.perf_counter() - t0, 1),
-            "prompt_tokens": tokens[0], "completion_tokens": tokens[1]}
+    return {**out, "seconds": round(time.perf_counter() - t0, 1)}

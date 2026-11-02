@@ -98,6 +98,34 @@ def triage(snapshot: Path, repo: str, issue_text: str, embedder, call_llm, k: in
             "completion_tokens": run["completion_tokens"], "seconds": run["seconds"]}
 
 
+def report(snapshot: Path, sha: str, repo: str, issue_text: str, embedder, call_llm, k: int = 5) -> dict:
+    """What both front-ends (api.py, bot.py) return: triage + an owner per suspect + a grounded
+    explanation. Degrades instead of failing when the LLM is down (warnings say what's missing);
+    only an embedding failure raises, since then there is no ranking at all."""
+    from pinpoint.blame import owner
+    from pinpoint.explain import explain
+
+    out, warnings = triage(snapshot, repo, issue_text, embedder, call_llm), []
+    if out["source"] == "dense":
+        warnings.append(f"agent unavailable ({out['stop']}); showing dense retrieval only")
+    suspects = [{"function_id": f["id"], "path": f["id"].split("::", 1)[0], "start_line": f["start_line"],
+                 "end_line": f["end_line"],
+                 "owner": owner(snapshot, f["id"].split("::", 1)[0], f["start_line"], f["end_line"], rev=sha)}
+                for f in out["functions"][:k]]
+    explanation, tokens = None, [out["prompt_tokens"], out["completion_tokens"]]
+    try:
+        ex = explain(call_llm, issue_text, snapshot, out["functions"])
+        explanation = {"text": ex["text"], "citations": ex["citations"]}
+        tokens = [tokens[0] + ex["prompt_tokens"], tokens[1] + ex["completion_tokens"]]
+        if any(not c["valid"] for c in ex["citations"]):
+            warnings.append("explanation cites lines outside the code it was shown")
+    except Exception as e:
+        warnings.append(f"no explanation: {e}")
+    return {"repo": repo, "commit": sha, "source": out["source"], "suspects": suspects,
+            "files": list(dict.fromkeys(s["path"] for s in suspects)), "explanation": explanation,
+            "warnings": warnings, "prompt_tokens": tokens[0], "completion_tokens": tokens[1]}
+
+
 def github_issue(repo: str, number: int) -> str:
     """Title + body of a public GitHub issue (unauthenticated REST: 60 requests/hour)."""
     with urllib.request.urlopen(f"https://api.github.com/repos/{repo}/issues/{number}", timeout=30) as r:

@@ -24,6 +24,14 @@ build-tables = "pinpoint.jobs:build_tables"
 embed = "pinpoint.jobs:embed"
 evaluate = "pinpoint.jobs:evaluate"
 sync-index = "pinpoint.jobs:sync_index"
+pinpoint-bot = "pinpoint.bot:main"
+
+[project.optional-dependencies]
+# The GitHub Actions bot: `pip install "pinpoint[bot]"` on a runner (Databricks preinstalls the SDK).
+bot = [
+    "databricks-sdk>=0.155.0",
+    "pygithub>=2.5",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.24,<0.13.0"]
@@ -45,6 +53,7 @@ dev = [
 local = [
     "databricks-sdk>=0.155.0",
     "mlflow>=3",
+    "pygithub>=2.5",
     "sentence-transformers>=6.2.0",
     "torch>=2.14.1",
 ]
