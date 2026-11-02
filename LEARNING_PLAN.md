@@ -121,7 +121,7 @@ Spark SQL, Jobs, AI Search (Delta Sync index, hybrid queries, filters).
 
 **Learn:** FastAPI, Pydantic, GitHub Actions YAML, PyGithub, `git blame` via GitPython.
 
-- [ ] Toy: a FastAPI "hello" endpoint, then one with a Pydantic request/response model; test with
+- [x] Toy: a FastAPI "hello" endpoint, then one with a Pydantic request/response model; test with
       `TestClient` in pytest.
 - [ ] `/triage` endpoint: best strategy + generation (explanation citing file:line) + owner from blame.
 - [ ] **Design decision to make here (we'll discuss):** where the API runs so GitHub Actions can
