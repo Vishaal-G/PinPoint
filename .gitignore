@@ -16,3 +16,7 @@ scratch/
 mlruns/
 .env
 .databricks/
+
+# Personal coaching notes: kept locally, not published
+CLAUDE.md
+LEARNING_PLAN.md
