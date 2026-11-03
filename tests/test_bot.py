@@ -1,3 +1,4 @@
+import pytest
 import json
 import sys
 import types
@@ -125,3 +126,27 @@ def test_backticked_range_citation_links_the_range():
         {"path": "pkg/mod.py", "line": 5, "valid": True}, {"path": "pkg/mod.py", "line": 6, "valid": True}]}
     url = f"https://github.com/o/r/blob/{SHA}/pkg/mod.py"
     assert bot.linkify(ex, "o/r", SHA) == f"goes in [`pkg/mod.py:5-6`]({url}#L5-L6) and [`pkg/mod.py:6-7`]({url}#L6-L7)."
+
+
+@pytest.mark.parametrize("raw,bad", [
+    ("see #1 and #4051", ["#1", "#4051"]),
+    ("fixed upstream in pytest-dev/pytest#12", ["pytest-dev/pytest#12"]),
+    ("dup of GH-7", ["GH-7"]),
+    ("https://github.com/o/r/issues/5 and https://github.com/o/r/pull/6", ["github.com/o/r/issues/5", "github.com/o/r/pull/6"]),
+    ("cc @alice", ["@alice"]),
+])
+def test_defang_breaks_pings_and_cross_references(raw, bad):
+    out = bot.defang(raw)
+    assert out.replace(bot.ZWSP, "") == raw            # looks identical to a reader
+    assert not any(b in out for b in bad)
+
+
+@pytest.mark.parametrize("raw", ["color #fff", "line 12# comment", "C# and F#", "a#b", "https://github.com/o/r/blob/x/a.py#L3"])
+def test_defang_leaves_non_references_alone(raw):
+    assert bot.defang(raw) == raw
+
+
+def test_issue_1_comment_has_no_live_reference():
+    rep = {**REPORT, "explanation": {"text": "Same as #1, see https://github.com/o/r/issues/1.", "citations": []}}
+    body = bot.format_comment(rep)
+    assert "#1" not in body.replace(f"#{bot.ZWSP}1", "") and "github.com/o/r/issues" not in body

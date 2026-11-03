@@ -45,9 +45,19 @@ def link(repo: str, sha: str, path: str, start: int, end: int | None = None) -> 
     return f"https://github.com/{repo}/blob/{sha}/{path}#L{start}" + (f"-L{end}" if end and end != start else "")
 
 
+ZWSP = "\u200b"  # zero-width space: invisible, but GitHub's autolink patterns no longer match
+_ISSUE_REF = re.compile(r"(?i)(?<![\w/])((?:[\w.-]+/[\w.-]+)?#|gh-)(?=\d)")   # #12, o/r#12, GH-12
+_ISSUE_URL = re.compile(r"(?i)\bgithub\.com(?=/[\w.-]+/[\w.-]+/(?:issues|pull|discussions)/\d)")
+
+
 def defang(text: str) -> str:
-    """Model output goes into a public comment: break @mentions (no pinging people from a bot)."""
-    return text.replace("@", "@​")
+    """Model output goes into a public comment. GitHub turns @name into a ping, and #12 / o/r#12 /
+    GH-12 / an issue or PR URL into a cross-reference that shows up on that other issue's timeline.
+    Break all of them with a zero-width space (issue #1: the bot could spam unrelated issues).
+    Only model text goes through here; the permalinks we build ourselves are added afterwards."""
+    text = text.replace("@", "@" + ZWSP)
+    text = _ISSUE_REF.sub(lambda m: m[1] + ZWSP, text)
+    return _ISSUE_URL.sub("github" + ZWSP + ".com", text)
 
 
 def linkify(explanation: dict, repo: str, sha: str) -> str:
