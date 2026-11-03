@@ -33,6 +33,10 @@ bot = [
     "databricks-sdk>=0.155.0",
     "pygithub>=2.5",
 ]
+# Local bge-small (PINPOINT_EMBEDDER=local): ONNX Runtime, ~25 MB, no PyTorch.
+local-embed = [
+    "fastembed>=0.9.1",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.24,<0.13.0"]
@@ -53,9 +57,10 @@ dev = [
 # them list them in their own environment (databricks.yml).
 local = [
     "databricks-sdk>=0.155.0",
+    "fastembed>=0.9.1",
     "mlflow>=3",
     "pygithub>=2.5",
-    "sentence-transformers>=6.2.0",
+    "sentence-transformers>=6.2.0",   # rerank.py's CrossEncoder only; embedding moved to fastembed
     "torch>=2.14.1",
 ]
 ui = [

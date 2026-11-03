@@ -109,7 +109,7 @@ def post(repo: str, number: int, body: str, token: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     from pinpoint.agent import databricks_llm
-    from pinpoint.embed import ENDPOINT_MODEL, EndpointEmbedder
+    from pinpoint.embed import default_embedder
 
     p = argparse.ArgumentParser()
     p.add_argument("--event", default=os.environ.get("GITHUB_EVENT_PATH"), help="webhook payload JSON")
@@ -128,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
     text = f"{issue['title']}\n{issue.get('body') or ''}"
     print(f"{args.repo}#{issue['number']} @ {sha[:7]}: {issue['title'][:100]}", flush=True)
 
-    embedder = EndpointEmbedder(ENDPOINT_MODEL, cache_dir=Path(args.cache))
+    embedder = default_embedder(Path(args.cache))
     rep = live.report(snapshot, sha, args.repo, text, embedder, databricks_llm(), k=args.k)
     embedder.save()
     body = format_comment(rep)

@@ -4,7 +4,6 @@ One embedder (its in-memory vector cache is the expensive part), one LLM client,
 repo: requests share one checkout per repo, and `git checkout` would move it under a running request.
 Tests swap these out (FastAPI: app.dependency_overrides; Streamlit: monkeypatch this module).
 """
-import os
 import threading
 from collections import defaultdict
 from functools import lru_cache
@@ -15,15 +14,10 @@ CACHE_DIR = Path("data/silver")  # the embedding cache shared with the SWE-bench
 
 @lru_cache(maxsize=1)
 def get_embedder():
-    """Databricks bge-large by default. PINPOINT_EMBEDDER=local runs bge-small on this machine instead
-    (offline demo while the endpoint is down; needs the `local` uv group). Rankings differ between the two."""
-    if os.environ.get("PINPOINT_EMBEDDER") == "local":
-        from pinpoint.embed import MODEL, Embedder
+    """embed.default_embedder: Databricks bge-large, or bge-small here with PINPOINT_EMBEDDER=local."""
+    from pinpoint.embed import default_embedder
 
-        return Embedder(MODEL, cache_dir=CACHE_DIR)
-    from pinpoint.embed import ENDPOINT_MODEL, EndpointEmbedder
-
-    return EndpointEmbedder(ENDPOINT_MODEL, cache_dir=CACHE_DIR)
+    return default_embedder(CACHE_DIR)
 
 
 @lru_cache(maxsize=1)

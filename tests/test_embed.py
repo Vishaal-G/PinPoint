@@ -45,3 +45,52 @@ def test_endpoint_embedder_accepts_a_string_cache_dir(tmp_path):
     e.encode(["a"])
     e.save()
     assert (tmp_path / "embeddings_databricks-x.parquet").exists()
+
+
+class FakeTextEmbedding:
+    """Stands in for fastembed.TextEmbedding: un-normalised vectors from the text length, records calls."""
+    embedding_size = 3
+
+    def __init__(self, model_name, cache_dir=None):
+        self.calls = []
+
+    def embed(self, texts, batch_size=32):
+        self.calls.append(list(texts))
+        return (np.array([len(t), 1.0, 2.0]) for t in texts)
+
+
+def local(tmp_path, monkeypatch):
+    import fastembed
+
+    from pinpoint.embed import Embedder
+
+    monkeypatch.setattr(fastembed, "TextEmbedding", FakeTextEmbedding)
+    return Embedder(cache_dir=tmp_path)
+
+
+def test_local_embedder_caches_and_normalises(tmp_path, monkeypatch):
+    e = local(tmp_path, monkeypatch)
+    v = e.encode(["a", "bb", "a"])
+    assert v.shape == (3, 3) and np.allclose(np.linalg.norm(v, axis=1), 1)
+    assert e.model.calls == [["a", "bb"]] and (e.hits, e.misses) == (1, 2)  # duplicate run once
+    e.save()
+    again = local(tmp_path, monkeypatch)
+    assert np.allclose(again.encode(["bb"]), v[1:2]) and again.model.calls == []  # from the parquet
+    assert again.encode([]).shape == (0, 3)
+
+
+def test_local_query_gets_prefix_and_is_not_cached(tmp_path, monkeypatch):
+    e = local(tmp_path, monkeypatch)
+    e.encode_query("bug")
+    assert e.model.calls == [[QUERY_PREFIX + "bug"]] and e.cache == {}
+
+
+def test_default_embedder_env_switch(tmp_path, monkeypatch):
+    import pinpoint.embed as embed
+
+    monkeypatch.setattr(embed, "EndpointEmbedder", lambda *a, **kw: "endpoint")
+    monkeypatch.setattr(embed, "Embedder", lambda *a, **kw: "local")
+    monkeypatch.delenv("PINPOINT_EMBEDDER", raising=False)
+    assert embed.default_embedder(tmp_path) == "endpoint"
+    monkeypatch.setenv("PINPOINT_EMBEDDER", "local")
+    assert embed.default_embedder(tmp_path) == "local"

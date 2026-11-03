@@ -138,7 +138,7 @@ def github_issue(repo: str, number: int) -> str:
 
 def main(argv: list[str] | None = None) -> None:
     from pinpoint.agent import databricks_llm
-    from pinpoint.embed import ENDPOINT_MODEL, EndpointEmbedder
+    from pinpoint.embed import default_embedder
 
     p = argparse.ArgumentParser()
     p.add_argument("repo", help="owner/name on GitHub, or a local checkout")
@@ -155,7 +155,7 @@ def main(argv: list[str] | None = None) -> None:
     name = args.repo if args.issue or not Path(args.repo).is_dir() else Path(args.repo).resolve().name
     text = github_issue(args.repo, args.issue) if args.issue else args.text
     print(f"{name} @ {sha[:10]}: {text.splitlines()[0][:100]}", flush=True)
-    embedder = EndpointEmbedder(ENDPOINT_MODEL, cache_dir=Path(args.cache_dir))
+    embedder = default_embedder(Path(args.cache_dir))
     out = triage(snapshot, name, text, embedder, databricks_llm())
     print(f"\n{out['source']} ranking ({out['stop']}, {out['steps']} steps, {out['seconds']} s LLM, "
           f"{time.perf_counter() - t0:.0f} s total):")
