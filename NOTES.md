@@ -574,3 +574,9 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
   91 s cold (1,539 bodies embedded on CPU at ~20/s), source "dense only" with 2 warnings, no error.
   Top 5 all fixtures-per-test code; gold compat.py::getlocation missed (same trigger-vs-bug miss as the agent).
   Owners from blame: Warren, Sviatoslav Sydorenko, Ran Benita.
+- Full-stack page run (quota back, 2026-11-02): same issue, Databricks bge-large (0 new bodies) + H3 agent +
+  explanation: 18 s, 22,810 tokens, 0 warnings, 1/1 citations valid. Ranking: 3 fixtures-per-test functions
+  (miss), but the explanation itself says the bug "may be in getlocation" (the gold): generation saw further
+  than the ranking. Idea: feed functions the explanation names back into the ranking.
+- Bug: the model wrapped a citation in backticks, so the link landed inside a code span (shown raw). linkify
+  now swallows the backticks and emits [`path:line`](url). Fixes the bot comment too.

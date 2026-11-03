@@ -59,7 +59,7 @@ def test_triage_shows_suspects_owner_and_linked_explanation(app):
     assert df.code[0] == f"https://github.com/o/r/blob/{sha}/pkg/mod.py#L5-L6"
     why = at.markdown[-1].value if "pkg/mod.py:6" in at.markdown[-1].value else \
         next(m.value for m in at.markdown if "beta at" in m.value)
-    assert f"[pkg/mod.py:6](https://github.com/o/r/blob/{sha}/pkg/mod.py#L6)" in why
+    assert f"[`pkg/mod.py:6`](https://github.com/o/r/blob/{sha}/pkg/mod.py#L6)" in why
     assert "pkg/mod.py:99" in why and "#L99" not in why                  # invalid citation stays plain
     assert "1/2 citations" in at.caption[-1].value
     assert at.warning[0].value == "explanation cites lines outside the code it was shown"

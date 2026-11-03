@@ -27,7 +27,7 @@ def test_comment_links_suspects_and_only_valid_citations():
     assert body.startswith(bot.MARKER)
     assert f"[`beta`](https://github.com/o/r/blob/{SHA}/pkg/mod.py#L5-L6)" in body
     assert "Bob (50% of lines)" in body and "| unknown |" in body
-    assert f"[pkg/mod.py:6](https://github.com/o/r/blob/{SHA}/pkg/mod.py#L6)" in body
+    assert f"[`pkg/mod.py:6`](https://github.com/o/r/blob/{SHA}/pkg/mod.py#L6)" in body
     assert "pkg/mod.py:40" in body and "#L40" not in body          # invalid citation stays plain text
     assert "@alice" not in body and "@​alice" in body           # no pinging from model output
     assert "agent (dense retrieval" in body and "Warnings" not in body
@@ -110,3 +110,10 @@ def test_main_dry_run_end_to_end(repo, monkeypatch, capsys):  # noqa: F811
 def test_main_skips_bot_issues(repo, capsys):  # noqa: F811
     assert bot.main(["--event", str(event_file(repo, "Bot")), "--repo", "o/r", "--workspace", str(repo)]) == 0
     assert "skipping" in capsys.readouterr().out
+
+
+def test_backticked_citation_is_linked_outside_the_code_span():
+    ex = {"text": "see `pkg/mod.py:6` and `pkg/mod.py:40`", "citations": [
+        {"path": "pkg/mod.py", "line": 6, "valid": True}, {"path": "pkg/mod.py", "line": 40, "valid": False}]}
+    out = bot.linkify(ex, "o/r", SHA)
+    assert out == f"see [`pkg/mod.py:6`](https://github.com/o/r/blob/{SHA}/pkg/mod.py#L6) and `pkg/mod.py:40`"

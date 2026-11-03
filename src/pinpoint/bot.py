@@ -53,8 +53,11 @@ def defang(text: str) -> str:
 def linkify(explanation: dict, repo: str, sha: str) -> str:
     """Explanation text (defanged) with only the *valid* path:line citations turned into permalinks."""
     valid = {(c["path"], c["line"]) for c in explanation["citations"] if c["valid"]}
-    return CITATION.sub(lambda m: f"[{m[0]}]({link(repo, sha, m[1], int(m[2]))})"
-                        if (m[1], int(m[2])) in valid else m[0], defang(explanation["text"]))
+
+    def sub(m):  # a citation wrapped in backticks would put the link inside a code span: shown as raw text
+        path, line = m[2], int(m[3])
+        return f"[`{path}:{line}`]({link(repo, sha, path, line)})" if (path, line) in valid else m[0]
+    return re.sub(rf"(`?){CITATION.pattern}\1", sub, defang(explanation["text"]))
 
 
 def format_comment(rep: dict) -> str:
