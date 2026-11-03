@@ -580,3 +580,12 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
   than the ranking. Idea: feed functions the explanation names back into the ranking.
 - Bug: the model wrapped a citation in backticks, so the link landed inside a code span (shown raw). linkify
   now swallows the backticks and emits [`path:line`](url). Fixes the bot comment too.
+
+## Week 8 live: first real bot run (issue #1, 2026-11-02)
+
+- Test issue written from the symptom only: model text with `#123` creates cross-references (defang only breaks
+  `@`). Gold = `bot.py::defang` (real, unfixed bug).
+- Actions run: 52 s cold on the runner (177 functions embedded at 18.7/s), agent, 14,363 + 244 tokens, no warnings.
+  Ranking: linkify, **defang (#2)**, post. Explanation named defang and the missing `#` handling exactly.
+- Bug seen live: model cited a range in backticks (`bot.py:48-50`); linkify only handled `path:line`, so the
+  link broke and left `-50` dangling. Now handles `path:a-b` and links #La-Lb.

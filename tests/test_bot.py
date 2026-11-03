@@ -117,3 +117,11 @@ def test_backticked_citation_is_linked_outside_the_code_span():
         {"path": "pkg/mod.py", "line": 6, "valid": True}, {"path": "pkg/mod.py", "line": 40, "valid": False}]}
     out = bot.linkify(ex, "o/r", SHA)
     assert out == f"see [`pkg/mod.py:6`](https://github.com/o/r/blob/{SHA}/pkg/mod.py#L6) and `pkg/mod.py:40`"
+
+
+def test_backticked_range_citation_links_the_range():
+    # seen live on issue #1: the model wrote `src/pinpoint/bot.py:48-50`
+    ex = {"text": "goes in `pkg/mod.py:5-6` and pkg/mod.py:6-7.", "citations": [
+        {"path": "pkg/mod.py", "line": 5, "valid": True}, {"path": "pkg/mod.py", "line": 6, "valid": True}]}
+    url = f"https://github.com/o/r/blob/{SHA}/pkg/mod.py"
+    assert bot.linkify(ex, "o/r", SHA) == f"goes in [`pkg/mod.py:5-6`]({url}#L5-L6) and [`pkg/mod.py:6-7`]({url}#L6-L7)."

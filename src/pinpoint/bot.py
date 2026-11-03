@@ -55,9 +55,13 @@ def linkify(explanation: dict, repo: str, sha: str) -> str:
     valid = {(c["path"], c["line"]) for c in explanation["citations"] if c["valid"]}
 
     def sub(m):  # a citation wrapped in backticks would put the link inside a code span: shown as raw text
-        path, line = m[2], int(m[3])
-        return f"[`{path}:{line}`]({link(repo, sha, path, line)})" if (path, line) in valid else m[0]
-    return re.sub(rf"(`?){CITATION.pattern}\1", sub, defang(explanation["text"]))
+        path, line, end = m[2], int(m[3]), m[4]
+        if (path, line) not in valid:
+            return m[0]
+        span = f"{line}-{end}" if end else str(line)
+        return f"[`{path}:{span}`]({link(repo, sha, path, line, int(end) if end else None)})"
+    # optional backtick, path:line, optional -end (models cite ranges too), the same backtick again
+    return re.sub(rf"(`?){CITATION.pattern}(?:-(\d+))?\1", sub, defang(explanation["text"]))
 
 
 def format_comment(rep: dict) -> str:
