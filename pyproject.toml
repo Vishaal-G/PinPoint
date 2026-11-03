@@ -76,3 +76,8 @@ torch = [{ index = "pytorch-cpu" }]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
+
+[tool.pyright]
+# Keep Pylance off the ~10 GB of cloned repos/worktrees under data/ (it ran WSL out of memory).
+include = ["src", "tests", "bot", "scratch"]
+exclude = ["data", "mlruns", ".venv", "**/__pycache__"]
