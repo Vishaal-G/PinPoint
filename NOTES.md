@@ -589,3 +589,10 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
   Ranking: linkify, **defang (#2)**, post. Explanation named defang and the missing `#` handling exactly.
 - Bug seen live: model cited a range in backticks (`bot.py:48-50`); linkify only handled `path:line`, so the
   link broke and left `-50` dangling. Now handles `path:a-b` and links #La-Lb.
+
+## fastembed swap (2026-11-02)
+- Model vs runtime are separate choices. fastembed runs the same bge-small weights exported to ONNX on
+  onnxruntime: cosine 1.0000 vs sentence-transformers (incl. bodies cut at 512 tokens), identical token
+  counts, so the cached vectors stay valid. Fresh install 16 s / 178 MB vs 84 s / 1.1 GB (torch CPU).
+- Bot dry run, local embedder, pytest (warm cache): 14 s wall, 860 MB peak. `PINPOINT_EMBEDDER=local`.
+- The crash before this was WSL out of memory: Pylance indexing 10 GB under data/. Fixed with [tool.pyright].
