@@ -146,7 +146,8 @@ def test_repo_pattern(name, ok):
 
 def test_llm_client_connects_lazily(monkeypatch):
     import pinpoint.agent as agent
-    providers.get_llm.cache_clear()
+    monkeypatch.delenv("PINPOINT_LLM", raising=False)
+    providers._llm.cache_clear()
     built = []
 
     def broken():
@@ -157,4 +158,4 @@ def test_llm_client_connects_lazily(monkeypatch):
     assert built == []
     with pytest.raises(IOError):
         call({"messages": []})             # fails at call time, inside the agent's try
-    providers.get_llm.cache_clear()
+    providers._llm.cache_clear()

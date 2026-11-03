@@ -29,7 +29,8 @@ def indexed_repos(root: Path = live.LIVE_DIR / "repos") -> list[str]:
 # aren't hashable data, and they don't change the answer's identity. The commit sha does.
 @st.cache_data(ttl=24 * 3600, show_spinner=False, max_entries=100)
 def cached_report(repo: str, sha: str, text: str, k: int, _snapshot: Path) -> dict:
-    return live.report(_snapshot, sha, repo, text, providers.get_embedder(), providers.get_llm(), k=k)
+    return live.report(_snapshot, sha, repo, text, providers.get_embedder(), providers.get_llm(), k=k,
+                       llm_label=providers.llm_label())
 
 
 def run(repo: str, ref: str | None, text: str, k: int) -> dict:

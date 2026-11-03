@@ -7,6 +7,7 @@ the environment Actions provides:
     GITHUB_EVENT_PATH   the webhook payload (the issue)        GITHUB_REPOSITORY  owner/name
     GITHUB_WORKSPACE    the checkout = the snapshot             GITHUB_TOKEN       posts the comment
     DATABRICKS_HOST / DATABRICKS_TOKEN   embeddings + LLM       PINPOINT_CACHE     embedding cache dir
+    PINPOINT_EMBEDDER=local (embed.py) and PINPOINT_LLM=openai|none (llm.py) drop the Databricks need.
 
 Nothing listens on the internet: no inbound auth to get wrong. Issue text is untrusted data; it
 never reaches a shell, and the agent's tools are read-only inside the checkout.
@@ -87,7 +88,10 @@ def format_comment(rep: dict) -> str:
            "| # | Function | File | Lines | Most lines by |", "|---|---|---|---|---|", *rows]
     if rep["explanation"]:
         out += ["", f"**Why:** {linkify(rep['explanation'], repo, sha)}"]
-    source = "agent (dense retrieval + Llama 3.3 70B)" if rep["source"] == "agent" else "dense retrieval only"
+    if rep["source"] == "agent":
+        source = f"agent (dense retrieval + {defang(rep.get('llm') or 'an LLM')})"
+    else:
+        source = "dense retrieval only" + ("" if rep.get("llm") else " (no LLM configured)")
     out += ["", f"<sub>Ranked by {source} at {sha[:7]}. React with 👍 or 👎 to rate this comment.</sub>"]
     if rep["warnings"]:
         out += ["", "<details><summary>Warnings</summary>", "", *(f"- {defang(w)}" for w in rep["warnings"]),
@@ -108,8 +112,8 @@ def post(repo: str, number: int, body: str, token: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from pinpoint.agent import databricks_llm
     from pinpoint.embed import default_embedder
+    from pinpoint.llm import make_llm
 
     p = argparse.ArgumentParser()
     p.add_argument("--event", default=os.environ.get("GITHUB_EVENT_PATH"), help="webhook payload JSON")
@@ -129,7 +133,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{args.repo}#{issue['number']} @ {sha[:7]}: {issue['title'][:100]}", flush=True)
 
     embedder = default_embedder(Path(args.cache))
-    rep = live.report(snapshot, sha, args.repo, text, embedder, databricks_llm(), k=args.k)
+    call_llm, label = make_llm()
+    rep = live.report(snapshot, sha, args.repo, text, embedder, call_llm, k=args.k, llm_label=label)
     embedder.save()
     body = format_comment(rep)
     print(f"source {rep['source']}, tokens {rep['prompt_tokens']}+{rep['completion_tokens']}, "

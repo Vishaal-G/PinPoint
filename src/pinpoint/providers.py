@@ -21,18 +21,19 @@ def get_embedder():
 
 
 @lru_cache(maxsize=1)
+def _llm():
+    from pinpoint.llm import make_llm
+
+    return make_llm()
+
+
 def get_llm():
-    """A call_llm that connects on first use, not here: an expired login or a quota block then fails
-    inside the agent's try (the report degrades to dense) instead of failing the whole request."""
-    client = {}
+    """llm.make_llm's call_llm (Databricks by default, connects lazily; None with PINPOINT_LLM=none)."""
+    return _llm()[0]
 
-    def call(body):
-        if "fn" not in client:
-            from pinpoint.agent import databricks_llm
 
-            client["fn"] = databricks_llm()
-        return client["fn"](body)
-    return call
+def llm_label() -> str | None:
+    return _llm()[1]
 
 
 _locks: defaultdict[str, threading.Lock] = defaultdict(threading.Lock)

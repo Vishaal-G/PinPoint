@@ -75,3 +75,15 @@ def test_checkout_uses_a_local_directory_as_is(tmp_path):
     repo.index.add(["a.py"])
     sha = repo.index.commit("one").hexsha
     assert live.checkout(str(tmp_path)) == (tmp_path, sha)
+
+
+def test_report_without_an_llm_is_dense_with_no_warnings(snap):
+    from git import Repo
+
+    r = Repo.init(snap)
+    r.index.add(["pkg/mod.py"])
+    r.index.commit("init")
+    rep = live.report(snap, r.head.commit.hexsha, "o/r", "it crashes", FakeEmbedder(), None, llm_label="unused")
+    assert rep["source"] == "dense" and rep["suspects"][0]["function_id"] == "pkg/mod.py::beta"
+    assert (rep["explanation"], rep["warnings"], rep["llm"]) == (None, [], None)
+    assert (rep["prompt_tokens"], rep["completion_tokens"]) == (0, 0)

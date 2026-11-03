@@ -596,3 +596,16 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
   counts, so the cached vectors stay valid. Fresh install 16 s / 178 MB vs 84 s / 1.1 GB (torch CPU).
 - Bot dry run, local embedder, pytest (warm cache): 14 s wall, 860 MB peak. `PINPOINT_EMBEDDER=local`.
 - The crash before this was WSL out of memory: Pylance indexing 10 GB under data/. Fixed with [tool.pyright].
+
+## LLM providers: OpenAI-compatible + no-LLM mode (`llm.py`, 2026-11-02)
+- GitHub Models was retired 2026-07-30. `models.github.ai` now answers every path with 200 "OK" (text/plain),
+  so a status-code check looks like success: check the body parses. The client raises on non-JSON.
+- `make_llm()` from env: databricks (default, lazy connect) | openai (URL/MODEL/KEY, any /chat/completions
+  server with tool calling) | none (dense only, no explanation, no warnings: a mode, not a failure).
+- Our call_llm was already "OpenAI chat body in, OpenAI response out", so a new provider = 1 function.
+  Databricks also serves `/serving-endpoints/chat/completions`: the generic client against it gave the same
+  #1 and the same explanation as the SDK path. 10 s per issue, warm cache.
+- Gotcha: the SDK silently retries 429; urllib doesn't. First generic run hit a Free Edition 429 and fell back
+  to dense. Added backoff on 429/502/503 (Retry-After, else 2/4/8/16 s); 4xx auth errors fail at once.
+- No-LLM bot run with every Databricks credential removed: 3 s, 0 tokens. The template now defaults to it
+  (zero secrets), with OpenAI-compatible and Databricks as commented upgrades.

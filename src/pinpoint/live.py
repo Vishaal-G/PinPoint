@@ -86,11 +86,14 @@ def triage(snapshot: Path, repo: str, issue_text: str, embedder, call_llm, k: in
     lines = {f: (int(a), int(b)) for f, a, b in
              fns.sort_values("start_line").drop_duplicates("function_id")[["function_id", "start_line", "end_line"]].values}
     seeds = [(f, *lines[f]) for f in dense[:k]]
+    no_run = {"ranking": [], "steps": [], "prompt_tokens": 0, "completion_tokens": 0, "seconds": 0.0}
     try:
-        run = run_agent(call_llm, snapshot, repo, issue_text, seeds=seeds, fixes=FIXES)
+        if call_llm is None:  # PINPOINT_LLM=none: the dense ranking is the answer
+            run = {**no_run, "stop": "no LLM configured"}
+        else:
+            run = run_agent(call_llm, snapshot, repo, issue_text, seeds=seeds, fixes=FIXES)
     except Exception as e:  # endpoint down or over quota: the dense seeds are still an answer
-        run = {"ranking": [], "stop": f"llm error: {e}", "steps": [], "prompt_tokens": 0,
-               "completion_tokens": 0, "seconds": 0.0}
+        run = {**no_run, "stop": f"llm error: {e}"}
     agent = [f for f in dict.fromkeys(run["ranking"]) if f in lines]  # drop invented ids
     ranked = agent or dense[:k]  # nothing usable submitted: fall back to the seeds
     return {"functions": [{"id": f, "start_line": lines[f][0], "end_line": lines[f][1]} for f in ranked],
@@ -101,32 +104,36 @@ def triage(snapshot: Path, repo: str, issue_text: str, embedder, call_llm, k: in
             "completion_tokens": run["completion_tokens"], "seconds": run["seconds"]}
 
 
-def report(snapshot: Path, sha: str, repo: str, issue_text: str, embedder, call_llm, k: int = 5) -> dict:
+def report(snapshot: Path, sha: str, repo: str, issue_text: str, embedder, call_llm, k: int = 5,
+           llm_label: str | None = None) -> dict:
     """What both front-ends (api.py, bot.py) return: triage + an owner per suspect + a grounded
     explanation. Degrades instead of failing when the LLM is down (warnings say what's missing);
-    only an embedding failure raises, since then there is no ranking at all."""
+    only an embedding failure raises, since then there is no ranking at all. call_llm=None (no LLM
+    configured) is a mode, not a failure: dense ranking, no explanation, no warnings about it."""
     from pinpoint.blame import owner
     from pinpoint.explain import explain
 
     out, warnings = triage(snapshot, repo, issue_text, embedder, call_llm), []
-    if out["source"] == "dense":
+    if out["source"] == "dense" and call_llm is not None:
         warnings.append(f"agent unavailable ({out['stop']}); showing dense retrieval only")
     suspects = [{"function_id": f["id"], "path": f["id"].split("::", 1)[0], "start_line": f["start_line"],
                  "end_line": f["end_line"],
                  "owner": owner(snapshot, f["id"].split("::", 1)[0], f["start_line"], f["end_line"], rev=sha)}
                 for f in out["functions"][:k]]
     explanation, tokens = None, [out["prompt_tokens"], out["completion_tokens"]]
-    try:
-        ex = explain(call_llm, issue_text, snapshot, out["functions"])
-        explanation = {"text": ex["text"], "citations": ex["citations"]}
-        tokens = [tokens[0] + ex["prompt_tokens"], tokens[1] + ex["completion_tokens"]]
-        if any(not c["valid"] for c in ex["citations"]):
-            warnings.append("explanation cites lines outside the code it was shown")
-    except Exception as e:
-        warnings.append(f"no explanation: {e}")
+    if call_llm is not None:
+        try:
+            ex = explain(call_llm, issue_text, snapshot, out["functions"])
+            explanation = {"text": ex["text"], "citations": ex["citations"]}
+            tokens = [tokens[0] + ex["prompt_tokens"], tokens[1] + ex["completion_tokens"]]
+            if any(not c["valid"] for c in ex["citations"]):
+                warnings.append("explanation cites lines outside the code it was shown")
+        except Exception as e:
+            warnings.append(f"no explanation: {e}")
     return {"repo": repo, "commit": sha, "source": out["source"], "suspects": suspects,
             "files": list(dict.fromkeys(s["path"] for s in suspects)), "explanation": explanation,
-            "warnings": warnings, "prompt_tokens": tokens[0], "completion_tokens": tokens[1]}
+            "warnings": warnings, "prompt_tokens": tokens[0], "completion_tokens": tokens[1],
+            "llm": llm_label if call_llm is not None else None}
 
 
 def github_issue(repo: str, number: int) -> str:
@@ -137,8 +144,8 @@ def github_issue(repo: str, number: int) -> str:
 
 
 def main(argv: list[str] | None = None) -> None:
-    from pinpoint.agent import databricks_llm
     from pinpoint.embed import default_embedder
+    from pinpoint.llm import make_llm
 
     p = argparse.ArgumentParser()
     p.add_argument("repo", help="owner/name on GitHub, or a local checkout")
@@ -156,7 +163,7 @@ def main(argv: list[str] | None = None) -> None:
     text = github_issue(args.repo, args.issue) if args.issue else args.text
     print(f"{name} @ {sha[:10]}: {text.splitlines()[0][:100]}", flush=True)
     embedder = default_embedder(Path(args.cache_dir))
-    out = triage(snapshot, name, text, embedder, databricks_llm())
+    out = triage(snapshot, name, text, embedder, make_llm()[0])
     print(f"\n{out['source']} ranking ({out['stop']}, {out['steps']} steps, {out['seconds']} s LLM, "
           f"{time.perf_counter() - t0:.0f} s total):")
     for i, f in enumerate(out["functions"], 1):

@@ -15,7 +15,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from pinpoint import live
-from pinpoint.providers import get_embedder, get_llm, repo_lock  # shared with app.py
+from pinpoint.providers import get_embedder, get_llm, llm_label, repo_lock  # shared with app.py
 
 app = FastAPI(title="Pinpoint", description="Points to the functions most likely responsible for an issue.")
 
@@ -86,7 +86,7 @@ def triage(req: TriageRequest, embedder=Depends(get_embedder), call_llm=Depends(
         except GitCommandError as e:
             raise HTTPException(404, f"cannot check out {req.repo} at {req.ref or 'default branch'}") from e
         try:
-            out = live.report(snapshot, sha, req.repo, text, embedder, call_llm, k=req.k)
+            out = live.report(snapshot, sha, req.repo, text, embedder, call_llm, k=req.k, llm_label=llm_label())
         except Exception as e:  # embedding endpoint down: no ranking at all
             raise HTTPException(503, f"embedding failed: {e}") from e
     return {**out, "seconds": round(time.perf_counter() - t0, 1)}

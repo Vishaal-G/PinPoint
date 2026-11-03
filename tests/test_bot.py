@@ -12,7 +12,7 @@ from test_live import FakeEmbedder
 
 SHA = "abcdef1234567890"
 REPORT = {
-    "repo": "o/r", "commit": SHA, "source": "agent", "warnings": [],
+    "repo": "o/r", "commit": SHA, "source": "agent", "warnings": [], "llm": "Llama 3.3 70B",
     "suspects": [{"function_id": "pkg/mod.py::beta", "path": "pkg/mod.py", "start_line": 5, "end_line": 6,
                   "owner": {"name": "Bob", "email": "bob@x.org", "lines": 1, "share": 0.5}},
                  {"function_id": "pkg/mod.py::alpha", "path": "pkg/mod.py", "start_line": 1, "end_line": 2,
@@ -150,3 +150,29 @@ def test_issue_1_comment_has_no_live_reference():
     rep = {**REPORT, "explanation": {"text": "Same as #1, see https://github.com/o/r/issues/1.", "citations": []}}
     body = bot.format_comment(rep)
     assert "#1" not in body.replace(f"#{bot.ZWSP}1", "") and "github.com/o/r/issues" not in body
+
+
+def test_footer_names_the_configured_llm_or_says_there_is_none():
+    assert "agent (dense retrieval + Llama 3.3 70B)" in bot.format_comment(REPORT)
+    assert "agent (dense retrieval + qwen3:32b)" in bot.format_comment({**REPORT, "llm": "qwen3:32b"})
+    fallback = bot.format_comment({**REPORT, "source": "dense", "explanation": None})
+    assert "dense retrieval only at" in fallback                      # LLM configured but down
+    none = bot.format_comment({**REPORT, "source": "dense", "explanation": None, "llm": None})
+    assert "dense retrieval only (no LLM configured)" in none
+
+
+def test_main_with_no_llm_needs_no_databricks(repo, monkeypatch, capsys):  # noqa: F811
+    import pinpoint.agent
+    import pinpoint.embed
+
+    def no_databricks(*a, **kw):
+        raise AssertionError("Databricks must not be touched")
+    monkeypatch.setattr(pinpoint.agent, "databricks_llm", no_databricks)
+    monkeypatch.setattr(pinpoint.embed, "EndpointEmbedder", no_databricks)
+    monkeypatch.setattr(pinpoint.embed, "Embedder", lambda *a, **kw: FakeEmbedder())
+    monkeypatch.setenv("PINPOINT_LLM", "none")
+    monkeypatch.setenv("PINPOINT_EMBEDDER", "local")
+    assert bot.main(["--event", str(event_file(repo)), "--repo", "o/r", "--workspace", str(repo), "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "[`beta`]" in out and "(no LLM configured)" in out
+    assert "Warnings" not in out and "**Why:**" not in out
