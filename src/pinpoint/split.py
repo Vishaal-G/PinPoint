@@ -76,6 +76,20 @@ def recheck_ids(path: Path = SPLIT_PATH, per_repo: int = RECHECK_PER_REPO, seed:
     return out
 
 
+
+SLICES = ("recheck", "tune", "heldout")
+
+
+def slice_ids(name: str, path: Path = SPLIT_PATH) -> set[str]:
+    """The issue ids of a named cross-repo slice. `heldout` is the final score: run it once, after
+    every choice is frozen, and never tune on what it shows."""
+    if name == "recheck":
+        return recheck_ids(path)
+    if name in ("tune", "heldout"):
+        split = load_split(path)
+        return set(split.loc[split.split == name, "instance_id"])
+    raise ValueError(f"unknown slice {name!r}: use one of {SLICES}")
+
 if __name__ == "__main__":
     if SPLIT_PATH.exists():
         raise SystemExit(f"{SPLIT_PATH} already exists. The split is locked; delete it by hand only if you mean it.")

@@ -26,7 +26,7 @@ resources:
       parameters:
         - name: repo                       # override per run: Run now with different parameters
           default: pytest-dev/pytest
-        - name: slice                      # repo (uses `repo`) | recheck (52 stratified tune) | tune (200)
+        - name: slice                      # repo (uses `repo`) | recheck (52) | tune (200) | heldout (100, once)
           default: repo
       tasks:
         - task_key: ingest

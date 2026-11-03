@@ -100,11 +100,11 @@ def save_tables(tables: dict[str, pd.DataFrame]) -> None:
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     slice_ = next((a.removeprefix("--slice=") for a in sys.argv if a.startswith("--slice=")), None)
-    if slice_:  # recheck (52) or tune (200)
-        from pinpoint.split import recheck_ids, tune_ids
+    if slice_:  # recheck (52), tune (200) or heldout (100)
+        from pinpoint.split import slice_ids
 
         issues = load_issues()
-        issues = issues[issues.instance_id.isin(recheck_ids() if slice_ == "recheck" else tune_ids())]
+        issues = issues[issues.instance_id.isin(slice_ids(slice_))]
     else:
         issues = load_issues(args[0] if args else "pytest-dev/pytest")
     tables = build_tables(issues)

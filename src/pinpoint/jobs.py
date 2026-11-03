@@ -7,7 +7,7 @@
     sync-index    Delta Sync vector index over the embeddings table (for the API, not for scoring)
 
 A slice is `--slice repo --repo <name>` (one repo), `--slice recheck` (52 stratified tune issues)
-or `--slice tune` (all 200). Held-out is never selectable here.
+`--slice tune` (all 200), or `--slice heldout` (the 100 held-out issues: the final score, run once).
 
 Every task is idempotent, so a retry or a second run gives the same tables:
   - content-addressed tables (functions, edges; key = body hash) only INSERT hashes they don't have,
@@ -34,20 +34,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--catalog", default="workspace")
     parser.add_argument("--schema-prefix", default="pinpoint")
     parser.add_argument("--repo", default="pytest-dev/pytest")
-    parser.add_argument("--slice", default="repo", choices=["repo", "recheck", "tune"])
+    parser.add_argument("--slice", default="repo", choices=["repo", "recheck", "tune", "heldout"])
     parser.add_argument("--model", default=ENDPOINT_MODEL)
     parser.add_argument("--vs-endpoint", default="pinpoint")
     return parser.parse_args(argv)
 
 
 def select_issues(issues: pd.DataFrame, args: argparse.Namespace) -> pd.DataFrame:
-    """The slice's rows of the 300 issues. Held-out issues are never in a slice."""
-    from pinpoint.split import recheck_ids, tune_ids
+    """The slice's rows of the 300 issues."""
+    from pinpoint.split import slice_ids
 
     if args.slice == "repo":
         keep = issues.repo == args.repo  # all of the repo's issues, as build-tables always did
     else:
-        keep = issues.instance_id.isin(recheck_ids() if args.slice == "recheck" else tune_ids())
+        keep = issues.instance_id.isin(slice_ids(args.slice))
     return issues[keep].reset_index(drop=True)
 
 

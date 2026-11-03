@@ -15,6 +15,7 @@ model + prompt version, so reruns cost nothing and are stable.
     uv run python -m pinpoint.agent [repo] --seeds    # Strategy H: seeded with Pinpoint's top-10
     uv run python -m pinpoint.agent --slice=recheck --seeds   # 52-issue slice; seeds from gold.eval_rankings (cloud)
     uv run python -m pinpoint.agent --slice=tune --seeds      # all 200 tune issues, same seeds
+    uv run python -m pinpoint.agent --slice=heldout --seeds   # the final score: 100 held-out issues, run once
     uv run python -m pinpoint.agent <instance_id> [--seeds]   # one issue live, traced in MLflow
 
 Add --fixes=labels,prompt,options,graph (any subset) for the Week 7 failure-analysis fixes:
@@ -368,7 +369,7 @@ if __name__ == "__main__":
 
     from pinpoint.data import load_issues
     from pinpoint.metrics import evaluate
-    from pinpoint.split import recheck_ids, tune_ids
+    from pinpoint.split import slice_ids, tune_ids
     from pinpoint.tracking import log_run
 
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
@@ -378,7 +379,7 @@ if __name__ == "__main__":
     repo = args[0] if args else "pytest-dev/pytest"
     if cloud:
         issues = load_issues()
-        issues = issues[issues.instance_id.isin(recheck_ids() if slice_ == "recheck" else tune_ids())]
+        issues = issues[issues.instance_id.isin(slice_ids(slice_))]
     else:
         issues = load_issues(repo)
         issues = issues[issues.instance_id.isin(tune_ids())]  # never score held-out here

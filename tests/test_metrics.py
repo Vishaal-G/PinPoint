@@ -93,3 +93,38 @@ def test_files_from_functions():
 def test_evaluate_accepts_numpy_gold_from_parquet():
     r = evaluate({"A": A}, {"A": np.array(["run"]), "D": np.array([], dtype=object)}, ks=(5,))
     assert r["n"] == 1
+
+
+def test_per_issue_matches_evaluate():
+    from pinpoint.metrics import per_issue
+
+    rankings = {"a": ["x", "g"], "b": ["g"], "c": ["y"]}
+    gold = {"a": ["g"], "b": ["g"], "c": ["g"], "d": []}
+    rr = per_issue(rankings, gold)
+    assert rr == {"a": 0.5, "b": 1.0, "c": 0.0}                       # d has no gold: skipped
+    assert sum(rr.values()) / len(rr) == pytest.approx(evaluate(rankings, gold)["mrr"])
+    assert per_issue(rankings, gold, "acc@1") == {"a": 0.0, "b": 1.0, "c": 0.0}
+
+
+def test_bootstrap_ci_brackets_the_mean_and_shrinks_with_n():
+    from pinpoint.metrics import bootstrap_ci
+
+    small = {str(i): float(i % 2) for i in range(20)}
+    big = {str(i): float(i % 2) for i in range(2000)}
+    m, lo, hi = bootstrap_ci(small)
+    assert m == 0.5 and lo < 0.5 < hi
+    _, blo, bhi = bootstrap_ci(big)
+    assert bhi - blo < (hi - lo) / 5                                  # width ~ 1/sqrt(n): 10x n -> ~1/10 width
+    assert bootstrap_ci({"a": 1.0, "b": 1.0}) == (1.0, 1.0, 1.0)      # no spread, no interval
+
+
+def test_paired_bootstrap_sees_a_consistent_small_gain():
+    from pinpoint.metrics import bootstrap_ci, paired_bootstrap
+
+    hard = {str(i): (i % 10) / 10 for i in range(100)}                # issues vary a lot in difficulty
+    better = {i: v + 0.05 for i, v in hard.items()}                   # +0.05 on every issue
+    diff, lo, hi, p = paired_bootstrap(better, hard)
+    assert diff == pytest.approx(0.05) and lo == pytest.approx(0.05) and p == 0.0
+    _, alo, ahi = bootstrap_ci(better)
+    _, blo, bhi = bootstrap_ci(hard)
+    assert alo < bhi                                                  # unpaired intervals overlap anyway

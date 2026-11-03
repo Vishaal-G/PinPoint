@@ -1,3 +1,4 @@
+import pytest
 import pandas as pd
 
 from pinpoint.split import heldout_counts, make_split, tune_ids
@@ -56,3 +57,13 @@ def test_recheck_ids_is_a_stable_stratified_tune_slice():
     per_repo = load_split().set_index("instance_id").loc[sorted(ids)].repo.value_counts()
     assert per_repo["pytest-dev/pytest"] == 11
     assert per_repo.drop("pytest-dev/pytest").max() == 4 and len(per_repo) == 12
+
+
+def test_slice_ids_partition_the_300():
+    from pinpoint.split import recheck_ids, slice_ids
+
+    tune, heldout = slice_ids("tune"), slice_ids("heldout")
+    assert (len(tune), len(heldout)) == (200, 100) and not tune & heldout
+    assert slice_ids("recheck") == recheck_ids() and recheck_ids() <= tune   # recheck never touches held-out
+    with pytest.raises(ValueError, match="unknown slice"):
+        slice_ids("all")
