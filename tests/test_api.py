@@ -59,6 +59,7 @@ def client(repo, monkeypatch):
     sha = Repo(repo).head.commit.hexsha
     monkeypatch.setattr(live, "checkout", lambda name, ref=None: (repo, sha))
     api.app.dependency_overrides[api.get_embedder] = FakeEmbedder
+    use_llm(scripted()[0])  # default: never build the real Databricks client (needs a live login)
     yield TestClient(api.app)
     api.app.dependency_overrides.clear()
 

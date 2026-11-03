@@ -58,9 +58,12 @@ local = [
     "sentence-transformers>=6.2.0",
     "torch>=2.14.1",
 ]
+ui = [
+    "streamlit>=1.66.1",
+]
 
 [tool.uv]
-default-groups = ["dev", "local", "api"]
+default-groups = ["dev", "local", "api", "ui"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

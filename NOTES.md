@@ -535,3 +535,42 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
   containing `-->` can't end the HTML comment early.
 - `author_voted`: the issue author knows the bug best; their vote is the most informed.
 - Caveat: a rerun edits the comment in place, but old reactions stay attached to the new ranking.
+
+## Week 9: Streamlit toy (`scratch/week9_streamlit_toy.py`, 2026-11-02)
+
+- Execution model: the whole script reruns top to bottom on every interaction; a clicked button returns True
+  for that one rerun. Toy check: 4 interactions = 5 runs (the initial run + 1 extra from `st.rerun()`).
+- `st.session_state`: per-browser-session dict that survives reruns (chat history, last result).
+- `@st.cache_resource`: one shared object per process, not copied (model, client, embedder).
+  `@st.cache_data`: return values keyed on args, pickled copies (search results). Toy: 2.74 s -> 0.01 s.
+- `st.form`: batches inputs, no rerun until submit. `st.chat_message` / `st.chat_input` = chat UI;
+  history is redrawn from session_state every rerun.
+- `streamlit.testing.v1.AppTest` = Streamlit's TestClient: runs the script headless, set widgets, click, assert.
+  Relative paths resolve against the calling file, not the cwd.
+- Deps: uv group `ui` (streamlit 1.66.1), in default-groups, kept out of the wheel.
+
+## Week 9: "paste an issue" page (`app.py`, `providers.py`, 2026-11-02)
+
+- `uv run streamlit run src/pinpoint/app.py`. Third front-end on `live.report` (with api.py, bot.py).
+  Form: repo selectbox (indexed repos under data/live/repos, or type owner/name: `accept_new_options`),
+  optional ref, GitHub issue URL or title/body, k. Output: metrics, suspects table with permalink
+  LinkColumn + blame owner, explanation with only valid citations linked (`bot.linkify`, shared), raw JSON.
+- Caching: `st.cache_data` keyed on (repo, **commit sha**, text, k), not the ref: "main" moving on = new key.
+  `_snapshot` (leading underscore) is excluded from hashing. Reports degraded by an LLM outage (dense
+  fallback / no explanation) are evicted with `cached_report.clear(*args)`; an "invalid citation" warning is
+  a property of the answer, so that report stays cached (first version evicted on any warning: a test caught it).
+- `providers.py`: one embedder, one LLM client, one lock per repo per process, shared by API and UI.
+  LLM client now connects lazily on first call: an expired login used to raise while *building* the
+  provider, which the page would have shown as "embedding failed". Now it fails inside the agent's try
+  and the report degrades to dense. `PINPOINT_EMBEDDER=local` = bge-small on CPU (offline demo).
+- Repo pattern bug: `[\w.-]+/[\w.-]+` accepts `../etc` (also in the API). Now one `live.REPO_PATTERN`,
+  no look-ahead because Pydantic validates patterns with Rust's regex engine (no look-around).
+- AppTest gotchas: find widgets by `key=` not index; `selectbox.set_value` only takes listed options
+  (typed new options unsupported), so tests list fake repos via a temp LIVE_DIR; `st.cache_data.clear()`
+  between tests (the cache is process-wide). API tests now default to a fake LLM (one test was silently
+  building the real Databricks client and broke when the CLI login expired).
+- `.streamlit/config.toml`: no usage-stats telemetry, headless.
+- Real smoke run (no fakes; local bge-small, Databricks login expired): pytest #15052 at 99ab2ac via issue URL.
+  91 s cold (1,539 bodies embedded on CPU at ~20/s), source "dense only" with 2 warnings, no error.
+  Top 5 all fixtures-per-test code; gold compat.py::getlocation missed (same trigger-vs-bug miss as the agent).
+  Owners from blame: Warren, Sviatoslav Sydorenko, Ran Benita.

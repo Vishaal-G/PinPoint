@@ -8,23 +8,20 @@ The embedder and LLM come in through FastAPI dependencies, so tests swap in fake
 app.dependency_overrides.
 Requests are synchronous: a repo whose functions aren't embedded yet takes minutes (see NOTES.md).
 """
-import threading
 import time
-from collections import defaultdict
-from functools import lru_cache
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from pinpoint import live
+from pinpoint.providers import get_embedder, get_llm, repo_lock  # shared with app.py
 
 app = FastAPI(title="Pinpoint", description="Points to the functions most likely responsible for an issue.")
 
 
 class TriageRequest(BaseModel):
-    repo: Annotated[str, Field(pattern=r"^[\w.-]+/[\w.-]+$", examples=["pytest-dev/pytest"])]
+    repo: Annotated[str, Field(pattern=live.REPO_PATTERN, examples=["pytest-dev/pytest"])]
     ref: str | None = Field(None, description="commit or branch; default: the default branch head")
     title: Annotated[str, Field(min_length=1)]
     body: str = ""
@@ -70,25 +67,6 @@ class TriageResponse(BaseModel):
     completion_tokens: int
 
 
-@lru_cache(maxsize=1)
-def get_embedder():
-    from pinpoint.embed import ENDPOINT_MODEL, EndpointEmbedder
-
-    return EndpointEmbedder(ENDPOINT_MODEL, cache_dir=Path("data/silver"))
-
-
-@lru_cache(maxsize=1)
-def get_llm():
-    from pinpoint.agent import databricks_llm
-
-    return databricks_llm()
-
-
-# One request per repo at a time: they share one checkout, and `git checkout` would move it underneath
-# a running request.
-_repo_locks: defaultdict[str, threading.Lock] = defaultdict(threading.Lock)
-
-
 @app.get("/health")
 def health() -> dict:
     return {"ok": True}
@@ -102,7 +80,7 @@ def triage(req: TriageRequest, embedder=Depends(get_embedder), call_llm=Depends(
 
     t0 = time.perf_counter()
     text = f"{req.title}\n{req.body}".strip()
-    with _repo_locks[req.repo]:
+    with repo_lock(req.repo):
         try:
             snapshot, sha = live.checkout(req.repo, req.ref)
         except GitCommandError as e:

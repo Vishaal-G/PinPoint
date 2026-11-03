@@ -50,6 +50,13 @@ def defang(text: str) -> str:
     return text.replace("@", "@​")
 
 
+def linkify(explanation: dict, repo: str, sha: str) -> str:
+    """Explanation text (defanged) with only the *valid* path:line citations turned into permalinks."""
+    valid = {(c["path"], c["line"]) for c in explanation["citations"] if c["valid"]}
+    return CITATION.sub(lambda m: f"[{m[0]}]({link(repo, sha, m[1], int(m[2]))})"
+                        if (m[1], int(m[2])) in valid else m[0], defang(explanation["text"]))
+
+
 def format_comment(rep: dict) -> str:
     repo, sha = rep["repo"], rep["commit"]
     rows = []
@@ -62,10 +69,7 @@ def format_comment(rep: dict) -> str:
     out = [MARKER, meta_line(rep), "### Pinpoint: where to look", "",
            "| # | Function | File | Lines | Most lines by |", "|---|---|---|---|---|", *rows]
     if rep["explanation"]:
-        valid = {(c["path"], c["line"]) for c in rep["explanation"]["citations"] if c["valid"]}
-        text = CITATION.sub(lambda m: f"[{m[0]}]({link(repo, sha, m[1], int(m[2]))})"
-                            if (m[1], int(m[2])) in valid else m[0], defang(rep["explanation"]["text"]))
-        out += ["", f"**Why:** {text}"]
+        out += ["", f"**Why:** {linkify(rep['explanation'], repo, sha)}"]
     source = "agent (dense retrieval + Llama 3.3 70B)" if rep["source"] == "agent" else "dense retrieval only"
     out += ["", f"<sub>Ranked by {source} at {sha[:7]}. React with 👍 or 👎 to rate this comment.</sub>"]
     if rep["warnings"]:

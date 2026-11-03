@@ -28,6 +28,9 @@ from pinpoint.repos import source_files
 
 LIVE_DIR = Path("data/live")
 FIXES = frozenset({"labels", "prompt", "options", "graph"})  # H3
+# owner/name on GitHub: owners are letters, digits, '-'; a repo name isn't only dots ('.', '..').
+# No look-ahead: Pydantic checks patterns with Rust's regex engine, which doesn't support it.
+REPO_PATTERN = r"^[A-Za-z0-9-]+/[\w.-]*[\w-][\w.-]*$"
 SAVE_EVERY = 2000  # embed this many bodies between cache saves, so a cold index can resume
 
 
