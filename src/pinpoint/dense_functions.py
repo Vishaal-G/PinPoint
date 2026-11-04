@@ -6,6 +6,7 @@ embedded once across every snapshot (the cache key is the same sha256 as the sil
     uv run python -m pinpoint.dense_functions             # pytest-dev/pytest tune issues
     uv run python -m pinpoint.dense_functions --header    # prepend "path\\nqualname" to each chunk
     uv run python -m pinpoint.dense_functions --model=databricks-bge-large-en   # Databricks endpoint
+    uv run python -m pinpoint.dense_functions --slice=heldout   # a cross-repo slice (needs pipeline.py --slice)
 """
 import sys
 
@@ -59,21 +60,34 @@ def run(issues: pd.DataFrame, gold_files: dict, gold_functions: dict, candidates
     }
 
 
-def load_candidates() -> pd.DataFrame:
+def load_candidates(ids: set[str] | None = None) -> pd.DataFrame:
+    """Membership (source files only) joined with source. Filter to `ids` before the join: joining
+    all 2M membership rows to their source text takes several GB."""
     membership = pd.read_parquet("data/silver/snapshot_membership.parquet")
-    functions = pd.read_parquet("data/silver/functions.parquet")
+    if ids is not None:
+        membership = membership[membership.instance_id.isin(ids)]
     membership = membership[membership.path.map(is_source_file)]
+    functions = pd.read_parquet("data/silver/functions.parquet", filters=[("hash", "in", list(set(membership.hash)))])
     return membership.merge(functions, on="hash", how="left").sort_values(["instance_id", "path", "start_line"])
 
 
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    repo = args[0] if args else "pytest-dev/pytest"
-    issues = load_issues(repo)
-    issues = issues[issues.instance_id.isin(tune_ids())]  # never score held-out here
+    slice_ = next((a.removeprefix("--slice=") for a in sys.argv if a.startswith("--slice=")), None)
+    if slice_:  # recheck / tune / heldout across repos
+        from pinpoint.split import slice_ids
+
+        ids, slice_name = slice_ids(slice_), slice_
+        issues = load_issues()
+        issues = issues[issues.instance_id.isin(ids)]
+    else:
+        repo = args[0] if args else "pytest-dev/pytest"
+        issues = load_issues(repo)
+        issues = issues[issues.instance_id.isin(tune_ids())]  # never score held-out here
+        ids, slice_name = set(issues.instance_id), f"{repo} tune"
     gt = pd.read_parquet("data/gold/ground_truth.parquet")
     results = run(issues, dict(zip(gt.instance_id, gt.gold_files)), dict(zip(gt.instance_id, gt.gold_functions)),
-                  load_candidates(), header="--header" in sys.argv, slice_name=f"{repo} tune",
+                  load_candidates(ids), header="--header" in sys.argv, slice_name=slice_name,
                   model=next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--model=")), MODEL))
     for level, r in results.items():
         print(f"dense functions, {level:8s}  " + "  ".join(
