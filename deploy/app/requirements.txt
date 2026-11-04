@@ -1,0 +1,5 @@
+# Installed by Databricks Apps when the app starts. The page's code comes from the pushed main branch,
+# like the GitHub Actions bot (push first, then `databricks bundle run pinpoint_app`).
+pinpoint @ git+https://github.com/Vishaal-G/PinPoint.git
+databricks-sdk>=0.155.0
+streamlit>=1.66.1

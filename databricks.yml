@@ -2,6 +2,7 @@
 #   databricks bundle validate    check this file
 #   databricks bundle deploy      build the wheel, upload it, create/update the job
 #   databricks bundle run pinpoint_pipeline
+#   databricks bundle run pinpoint_app     deploy + start the Streamlit page as a Databricks App
 bundle:
   name: pinpoint
 
@@ -12,6 +13,12 @@ variables:
   schema_prefix:
     default: pinpoint
 
+# Only these are uploaded as bundle files. The job runs the built wheel and the app installs from GitHub,
+# so nothing else is needed, and walking data/ (~10 GB of worktrees) made every validate take minutes.
+sync:
+  paths:
+    - ./deploy
+
 artifacts:
   pinpoint_wheel:
     type: whl
@@ -20,6 +27,21 @@ artifacts:
     dynamic_version: true   # unique version per deploy, so serverless doesn't reuse a cached old wheel
 
 resources:
+  apps:
+    pinpoint_app:
+      name: pinpoint
+      description: "Paste a GitHub issue, get the functions most likely responsible"
+      source_code_path: ./deploy/app       # app.yaml, requirements.txt, main.py (code installed from GitHub)
+      resources:                           # what the app's service principal may call
+        - name: embeddings
+          serving_endpoint:
+            name: databricks-bge-large-en
+            permission: CAN_QUERY
+        - name: llm
+          serving_endpoint:
+            name: databricks-meta-llama-3-3-70b-instruct
+            permission: CAN_QUERY
+
   jobs:
     pinpoint_pipeline:
       name: pinpoint-pipeline

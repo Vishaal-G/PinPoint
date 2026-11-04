@@ -1,0 +1,7 @@
+# Databricks App: the Streamlit "paste an issue" page (src/pinpoint/app.py), deployed by the bundle
+# (databricks.yml -> resources.apps.pinpoint_app). Auth: the app's own service principal, whose
+# DATABRICKS_HOST / CLIENT_ID / CLIENT_SECRET Databricks injects; cloud.workspace() picks them up.
+command: ["streamlit", "run", "main.py"]
+env:
+  - name: PYTHONUNBUFFERED
+    value: "1"

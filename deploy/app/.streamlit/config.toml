@@ -1,0 +1,5 @@
+[browser]
+gatherUsageStats = false   # no telemetry to Streamlit
+
+[server]
+headless = true            # don't try to open a browser (WSL)
