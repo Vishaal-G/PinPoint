@@ -176,3 +176,13 @@ def test_main_with_no_llm_needs_no_databricks(repo, monkeypatch, capsys):  # noq
     out = capsys.readouterr().out
     assert "[`beta`]" in out and "(no LLM configured)" in out
     assert "Warnings" not in out and "**Why:**" not in out
+
+
+def test_index_only_fills_the_cache_without_an_issue(repo, monkeypatch, capsys):  # noqa: F811
+    import pinpoint.embed
+
+    fake = FakeEmbedder()
+    monkeypatch.setattr(pinpoint.embed, "EndpointEmbedder", lambda *a, **kw: fake)
+    assert bot.main(["--index-only", "--repo", "o/r", "--workspace", str(repo)]) == 0   # no --event
+    assert fake.misses > 0 and fake.saves >= 1
+    assert "embedded this run" in capsys.readouterr().out

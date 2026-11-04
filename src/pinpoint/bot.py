@@ -13,6 +13,11 @@ Nothing listens on the internet: no inbound auth to get wrong. Issue text is unt
 never reaches a shell, and the agent's tools are read-only inside the checkout.
 
     uv run python -m pinpoint.bot --event event.json --repo o/r --workspace path --dry-run   # local test
+    pinpoint-bot --index-only        # push / manual run: embed new functions so issue runs start warm
+
+Why two modes: since 2026-06-26 GitHub gives untrusted triggers (anyone can open an issue) a read-only
+Actions cache, so an `issues` run can restore the embedding cache but never save it. A `push` to the
+default branch (trusted) runs --index-only and saves it; issue runs then only embed what changed since.
 """
 import argparse
 import json
@@ -122,7 +127,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--cache", default=os.environ.get("PINPOINT_CACHE", str(Path.home() / ".cache" / "pinpoint")))
     p.add_argument("-k", type=int, default=5)
     p.add_argument("--dry-run", action="store_true", help="print the comment instead of posting it")
+    p.add_argument("--index-only", action="store_true", help="embed the checkout's functions into the cache; no issue")
     args = p.parse_args(argv)
+
+    if args.index_only:
+        snapshot, sha = live.checkout(args.workspace)
+        embedder = default_embedder(Path(args.cache))
+        print(f"indexing {args.repo} @ {sha[:7]}", flush=True)
+        live.embed(live.index(snapshot), embedder)
+        embedder.save()
+        print(f"cache: {len(embedder.cache)} bodies, {embedder.misses} embedded this run", flush=True)
+        return 0
 
     issue = json.loads(Path(args.event).read_text())["issue"]
     if issue.get("user", {}).get("type") == "Bot":
