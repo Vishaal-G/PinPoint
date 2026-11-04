@@ -609,3 +609,28 @@ Slice so far: pytest-dev/pytest tune issues (n=11). Small n: one issue = 9 point
   to dense. Added backoff on 429/502/503 (Retry-After, else 2/4/8/16 s); 4xx auth errors fail at once.
 - No-LLM bot run with every Databricks credential removed: 3 s, 0 tokens. The template now defaults to it
   (zero secrets), with OpenAI-compatible and Databricks as commented upgrades.
+
+## Held-out: the final score (100 issues, 12 repos, run once 2026-11-04)
+
+Job run 1005139931064843 (`slice=heldout`), agent H3 (`--slice=heldout --seeds --fixes=labels,prompt,options,graph`),
+`uv run python -m pinpoint.report heldout`. Mean [95% bootstrap interval], 10,000 resamples. Fn rows: 90 issues with a gold function.
+
+| strategy | level | acc@1 | acc@5 | MRR |
+| --- | --- | --- | --- | --- |
+| Dense (bge-large) | file | .390 [.300, .490] | .660 [.570, .750] | .529 [.451, .610] |
+| BM25 over function source | file | .320 [.230, .410] | .580 [.480, .670] | .428 [.347, .510] |
+| Dense + call graph | file | .320 [.230, .410] | .620 [.520, .710] | .459 [.384, .538] |
+| **Agent H3** | file | **.700** [.610, .790] | **.860** [.790, .920] | **.772** [.698, .842] |
+| Dense (bge-large) | fn | .211 [.133, .300] | .422 [.322, .522] | .292 [.214, .373] |
+| BM25 over function source | fn | .156 [.089, .233] | .311 [.222, .411] | .226 [.153, .304] |
+| RRF(BM25, dense) | fn | .200 [.122, .289] | .411 [.311, .511] | .298 [.220, .379] |
+| Dense + call graph | fn | .122 [.056, .189] | .244 [.156, .333] | .194 [.130, .261] |
+| **Agent H3** | fn | **.489** [.389, .600] | **.611** [.511, .711] | **.546** [.450, .645] |
+
+- Paired: agent - dense fn MRR +.254 [+.176, +.335], acc@1 +.278; file MRR +.243. p < .0001 for all. RRF vs dense: +.006
+  (no difference). BM25 vs dense fn: -.066 (CI crosses 0).
+- Held-out lands close to tune: dense fn .292 vs .295 (T3f), dense file .529 vs .567. Agent fn .546 vs .614 on recheck:
+  some of the recheck number was fit to that slice (the fixes were chosen by looking at it). That gap is why held-out exists.
+- Top-50 cut costs at most .003 MRR vs gold.eval_results.
+- Search space per issue (snapshot_membership, 152 built snapshots, source files only): median 13,357 functions in
+  938 files; requests 692, django 25,131, sympy 36,597; max 42,560.
